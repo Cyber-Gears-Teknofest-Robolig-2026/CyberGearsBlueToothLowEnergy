@@ -21,7 +21,7 @@ const AppNavigator = () => {
       documentTitle={{
         formatter: (_, route) => {
           const titles: Record<string, string> = {
-            Home: "Cyber Gears BlueTooth Low Energy",
+            Home: "Ana Sayfa",
             BluetoothConnection: "Bağlantı Yönetimi",
             Communication: "Cihaz İletişimi",
             CarControl: "Araç Kontrol",
