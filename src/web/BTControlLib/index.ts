@@ -36,18 +36,14 @@ export const connect = async (): Promise<BluetoothDevice | null> => {
 
   if (!window.isSecureContext) {
     throw new Error(
-      "Web Bluetooth güvenli bağlantı gerektirir.\n\n" +
-      "Sayfayı şu adreslerden biriyle açın:\n" +
-      "• http://localhost:PORT\n" +
-      "• https://alan-adiniz.com\n\n" +
-      "http://192.168.x.x gibi yerel IP adresleri çalışmaz."
+      "Web Bluetooth yalnızca HTTPS veya localhost üzerinde çalışır."
     );
   }
 
   if (!isSupported()) {
     throw new Error(
-      "Bu tarayıcı Web Bluetooth özelliğini desteklemiyor.\n\n" +
-      "Masaüstünde güncel Google Chrome veya Microsoft Edge kullanın."
+      "Bu tarayıcı Web Bluetooth özelliğini desteklemiyor. " +
+      "Google Chrome veya Microsoft Edge kullanın."
     );
   }
 
@@ -57,13 +53,22 @@ export const connect = async (): Promise<BluetoothDevice | null> => {
 
   try {
     /*
-     * Bu çağrı cihaz seçim penceresini açar.
+     * Android tarafındaki startDeviceScan([SERVICE_UUID]) ile aynı mantık:
      *
-     * acceptAllDevices kullanıldığı için servis UUID'sini reklam paketinde
-     * yayınlamayan BLE cihazları da listede görünebilir.
+     * Yalnızca SERVICE_UUID değerini advertising paketinde yayınlayan
+     * yakındaki BLE cihazları gösterilir.
      */
     nativeDevice = await bluetooth.requestDevice({
-      acceptAllDevices: true,
+      filters: [
+        {
+          services: [SERVICE_UUID],
+        },
+      ],
+
+      /*
+       * Seçilen cihazdaki özel servise bağlantıdan sonra erişebilmek için.
+       * Bu bir tarama filtresi değildir.
+       */
       optionalServices: [SERVICE_UUID],
     });
   } catch (error: unknown) {
@@ -74,45 +79,23 @@ export const connect = async (): Promise<BluetoothDevice | null> => {
         ? String((error as { name: unknown }).name)
         : "";
 
-    const errorMessage =
-      error instanceof Error
-        ? error.message
-        : String(error);
-
-    // Kullanıcı seçim ekranında İptal'e bastı.
+    /*
+     * NotFoundError iki durumda oluşabilir:
+     * 1. Kullanıcı pencereyi iptal etti.
+     * 2. SERVICE_UUID yayınlayan cihaz bulunamadı.
+     */
     if (errorName === "NotFoundError") {
       return null;
     }
 
-    if (errorName === "SecurityError") {
-      throw new Error(
-        "Tarayıcı Bluetooth erişimini güvenlik nedeniyle engelledi.\n\n" +
-        "Sayfayı doğrudan Chrome veya Edge'de, HTTPS ya da localhost " +
-        "üzerinden açın.\n\n" +
-        `Tarayıcı mesajı: ${errorMessage}`
-      );
-    }
-
-    if (errorName === "NotAllowedError") {
-      throw new Error(
-        "Bluetooth izni verilmedi veya istek kullanıcı tıklaması dışında yapıldı.\n\n" +
-        "Bağlanma işlemini doğrudan butonun onPress/onClick olayından çağırın.\n\n" +
-        `Tarayıcı mesajı: ${errorMessage}`
-      );
-    }
-
     throw new Error(
-      `BLE cihaz seçim ekranı açılamadı.\n\n${errorMessage}`
+      `BLE cihaz seçim ekranı açılamadı: ${getErrorMessage(error)}`
     );
   }
 
-  if (!nativeDevice) {
-    return null;
-  }
-
-  if (!nativeDevice.gatt) {
+  if (!nativeDevice?.gatt) {
     throw new Error(
-      "Seçilen aygıt BLE GATT bağlantısını desteklemiyor."
+      "Seçilen cihaz BLE GATT bağlantısını desteklemiyor."
     );
   }
 
@@ -142,8 +125,7 @@ export const connect = async (): Promise<BluetoothDevice | null> => {
     } catch (_) { }
 
     throw new Error(
-      "BLE cihazına bağlanıldı ancak servis veya karakteristikler bulunamadı.\n\n" +
-      "Arduino tarafında SERVICE_UUID, RX_UUID ve TX_UUID değerlerini kontrol edin.\n\n" +
+      "BLE cihazına bağlanıldı fakat servis veya karakteristikler bulunamadı.\n\n" +
       `Ayrıntı: ${getErrorMessage(error)}`
     );
   }
