@@ -1,5 +1,4 @@
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Platform } from "react-native";
 import { BleManager, Device } from "react-native-ble-plx";
 import { Buffer } from "buffer";
 import { create } from "zustand";
@@ -14,15 +13,10 @@ export const NUS_SERVICE = "8c17a100-2b31-4f52-9a68-7b126a090001";
 export const NUS_RX = "8c17a100-2b31-4f52-9a68-7b126a090002"; // write (client -> device)
 export const NUS_TX = "8c17a100-2b31-4f52-9a68-7b126a090003"; // notify (device -> client)
 
-// Tüm uygulamada tek bir BleManager örneği paylaşılır.
-// ÖNEMLİ: BleManager native bir modüldür ve kurucusu (createClient) web'de
-// çalışmaz. Giriş (src/App.tsx) android App'i web paketine de dahil ettiğinden
-// bu dosya web'de de yüklenir; bu yüzden örneği yalnızca native'de oluşturuyoruz.
-// Android ekranları web'de hiç render edilmediğinden bleManager web'de kullanılmaz.
-export const bleManager: BleManager =
-  Platform.OS === "web"
-    ? (undefined as unknown as BleManager)
-    : new BleManager();
+// Tüm uygulamada tek bir BleManager örneği paylaşılır. Bu dosya yalnızca
+// android App'i ile (src/App.tsx platforma göre tembel require ettiğinden)
+// native'de değerlendirilir; web'de hiç çalışmaz.
+export const bleManager = new BleManager();
 
 export type RootStackParamList = {
   Home: undefined;

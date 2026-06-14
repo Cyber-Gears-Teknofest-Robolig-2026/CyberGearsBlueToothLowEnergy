@@ -1,21 +1,14 @@
+import { Platform } from 'react-native';
 
-import React, { useState, useEffect } from 'react';
-import { StatusBar } from 'expo-status-bar';
-import {
-  Platform,
-  StyleSheet,
-  Text,
-  View,
-  Pressable
-} from 'react-native';
-import WebApp from '@/src/web/App';
-import AndroidApp from '@/src/android/App';
+// Platform sınırı yalnızca BURADA. Android modülü native BLE (BleManager) içerdiği
+// için web'de hiç değerlendirilmemeli; bu yüzden platforma göre TEMBEL (require)
+// yüklüyoruz. require yalnızca ilgili platformda çağrıldığından, web'de android
+// modül grafiği hiç çalışmaz ve diğer dosyaların Platform'a ihtiyacı kalmaz.
+declare const require: (modulePath: string) => any;
 
-export default function App() {
-  switch (Platform.OS) {
-    case 'web':
-      return <WebApp />;
-    case 'android':
-      return <AndroidApp />;
-  }
-}
+const App =
+  Platform.OS === 'web'
+    ? require('./web/App').default
+    : require('./android/App').default;
+
+export default App;

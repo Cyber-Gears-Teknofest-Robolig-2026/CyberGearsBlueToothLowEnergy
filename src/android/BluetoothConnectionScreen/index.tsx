@@ -3,7 +3,6 @@ import {
   PanResponder,
   View,
   useWindowDimensions,
-  Platform,
   PermissionsAndroid,
   TouchableOpacity,
   Alert,
@@ -91,29 +90,16 @@ export default function BluetoothConnectionScreen() {
     }
   };
 
-  // Android sürümüne göre gereken BLE tarama/bağlanma izinlerini ister.
+  // BLE tarama/bağlanma izinlerini ister (Android 12+).
   const requestBlePermissions = async (): Promise<boolean> => {
-    const apiLevel =
-      typeof Platform.Version === "number"
-        ? Platform.Version
-        : parseInt(Platform.Version as string, 10);
-
-    if (apiLevel >= 31) {
-      const result = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-      ]);
-      return (
-        result[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === "granted" &&
-        result[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === "granted"
-      );
-    }
-
-    // Android 11 ve altında BLE taraması konum izni gerektirir.
-    const granted = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+    const result = await PermissionsAndroid.requestMultiple([
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+    ]);
+    return (
+      result[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === "granted" &&
+      result[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === "granted"
     );
-    return granted === "granted";
   };
 
   const stopScan = () => {
