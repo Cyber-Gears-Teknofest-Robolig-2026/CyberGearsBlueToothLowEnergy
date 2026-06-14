@@ -108,10 +108,7 @@ const styles = StyleSheet.create({
     padding: 8,
     paddingHorizontal: 12,
     borderRadius: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
+    boxShadow: "0px 1px 1px rgba(0, 0, 0, 0.1)",
     elevation: 1,
   },
   messageBubbleSent: {

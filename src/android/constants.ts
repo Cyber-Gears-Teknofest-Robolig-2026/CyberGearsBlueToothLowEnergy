@@ -1,22 +1,7 @@
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { BleManager, Device } from "react-native-ble-plx";
-import { Buffer } from "buffer";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-
-// ----------------------------------------------------------------------------
-// Nordic UART Service (NUS) — BLE üzerinden seri haberleşme (UART köprüsü).
-// RX: client -> cihaz (write), TX: cihaz -> client (notify).
-// ----------------------------------------------------------------------------
-export const NUS_SERVICE = "8c17a100-2b31-4f52-9a68-7b126a090001";
-export const NUS_RX = "8c17a100-2b31-4f52-9a68-7b126a090002"; // write (client -> device)
-export const NUS_TX = "8c17a100-2b31-4f52-9a68-7b126a090003"; // notify (device -> client)
-
-// Tüm uygulamada tek bir BleManager örneği paylaşılır. Bu dosya yalnızca
-// android App'i ile (src/App.tsx platforma göre tembel require ettiğinden)
-// native'de değerlendirilir; web'de hiç çalışmaz.
-export const bleManager = new BleManager();
 
 export type RootStackParamList = {
   Home: undefined;
@@ -28,11 +13,22 @@ export type RootStackParamList = {
 
 export type AppNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
-// BLE cihazı, diğer ekranların (Communication, CarControl) bildiği yüzeye
-// (name/write/disconnect/onDataReceived) sarılır. Böylece taşıma katmanı
-// (Classic yerine Low Energy) değişse de ekran kodları aynı kalır.
-// Veri akışı base64'tür: write düz metni base64'e çevirip RX'e yazar,
-// onDataReceived ise TX bildirimlerinin base64 değerini olduğu gibi iletir.
+// ----------------------------------------------------------------------------
+// BlueTooth Low Energy (RFCOMM / SPP) — seri haberleşme. UUID/servis gerekmez;
+// satır temelli ('\n') düz metin çerçeveleme kullanılır (bkz. ./BTControlLib).
+// ----------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------
+// Taşımadan bağımsız Bluetooth yüzeyi (tipler) + durum (store). Taşıma katmanı
+// (./BTControlLib) bu tipleri buradan import eder; ekranlar da. constants ise
+// BTControlLib'i import ETMEZ (re-export yok). Böylece iki dosya birbirini import
+// etmez ve require döngüsü oluşmaz. Ekranlar taşıma fonksiyonlarını (connect,
+// startScan, ...) doğrudan "../BTControlLib"ten alır.
+// ----------------------------------------------------------------------------
+export type ScannedDevice = { id: string; name: string; bonded?: boolean };
+
+export type Subscription = { remove: () => void };
+
 export type BluetoothDevice = {
   id: string;
   address: string; // ekran uyumluluğu için id'nin takma adı
@@ -41,52 +37,10 @@ export type BluetoothDevice = {
   disconnect: () => Promise<void>;
   onDataReceived: (
     listener: (event: { data: string }) => void
-  ) => { remove: () => void };
+  ) => Subscription;
 };
 
-// Bağlı bir ble-plx Device'ını ortak BluetoothDevice yüzeyine sarar.
-const wrapNusDevice = (device: Device): BluetoothDevice => ({
-  id: device.id,
-  address: device.id,
-  name: device.name ?? device.localName ?? "Bilinmeyen Cihaz",
-  write: async (data: string) => {
-    const base64 = Buffer.from(data, "utf-8").toString("base64");
-    await device.writeCharacteristicWithResponseForService(
-      NUS_SERVICE,
-      NUS_RX,
-      base64
-    );
-  },
-  onDataReceived: (listener) => {
-    const subscription = device.monitorCharacteristicForService(
-      NUS_SERVICE,
-      NUS_TX,
-      (error, characteristic) => {
-        if (error || !characteristic?.value) return;
-        // characteristic.value zaten base64'tür.
-        listener({ data: characteristic.value });
-      }
-    );
-    return { remove: () => subscription.remove() };
-  },
-  disconnect: async () => {
-    await bleManager.cancelDeviceConnection(device.id);
-  },
-});
-
-// Verilen cihaz id'sine bağlanır, NUS servis/karakteristiklerini keşfeder ve
-// ortak yüzeye sarılmış cihazı döndürür.
-export const connectToNusDevice = async (
-  deviceId: string
-): Promise<BluetoothDevice> => {
-  const device = await bleManager.connectToDevice(deviceId, {
-    requestMTU: 247,
-  });
-  await device.discoverAllServicesAndCharacteristics();
-  return wrapNusDevice(device);
-};
-
-interface Message {
+export interface Message {
   id: number;
   text: string;
   mode: "sent" | "received";
@@ -106,9 +60,10 @@ export const useBluetoothStore = create<BluetoothStore>((set) => ({
   connectedDevice: null,
   setConnectedDevice: (device) => set({ connectedDevice: device }),
   messages: [],
-  setMessages: (messages: Message[]) => set({ messages }),
+  setMessages: (messages) => set({ messages }),
   manuallyDisconnected: false,
-  setManuallyDisconnected: (manuallyDisconnected: boolean) => set({ manuallyDisconnected }),
+  setManuallyDisconnected: (manuallyDisconnected) =>
+    set({ manuallyDisconnected }),
 }));
 
 // ----------------------------------------------------------------------------
@@ -241,3 +196,11 @@ export const useSettingsStore = create<SettingsStore>()(
     }
   )
 );
+
+// ----------------------------------------------------------------------------
+// Bluetooth implementasyonu (Classic / react-native-bluetooth-classic) ayrı
+// dosyadadır: ./BTControlLib. constants onu import ETMEZ; ekranlar taşıma
+// fonksiyonlarını (connect, startScan, ...) doğrudan oradan alır. Böylece
+// constants <-> BTControlLib karşılıklı importu (ve require döngüsü) olmaz. Başka
+// bir Bluetooth çeşidine geçerken yalnızca o dosya değişir.
+// ----------------------------------------------------------------------------

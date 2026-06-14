@@ -23,8 +23,8 @@ import {
   AppNavigationProp,
   useBluetoothStore,
   useSettingsStore,
-  bleManager,
 } from "./constants";
+import { onAdapterPoweredOff, onDeviceDisconnected } from "./BTControlLib";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -42,18 +42,16 @@ const AppNavigator = () => {
 
   useEffect(() => {
     // Bluetooth kapatılırsa: kullanıcıyı uyar ve bağlantıyı temizle.
-    const stateSubscription = bleManager.onStateChange((state) => {
-      if (state === "PoweredOff") {
-        Alert.alert(
-          "Hata",
-          "Bluetooth kapalı!"
-        );
-        const { connectedDevice: device } = useBluetoothStore.getState();
-        device?.disconnect().catch(() => { });
-        setManuallyDisconnected(false);
-        setConnectedDevice(null);
-      }
-    }, true);
+    const stateSubscription = onAdapterPoweredOff(() => {
+      Alert.alert(
+        "Hata",
+        "Bluetooth kapalı!"
+      );
+      const { connectedDevice: device } = useBluetoothStore.getState();
+      device?.disconnect().catch(() => { });
+      setManuallyDisconnected(false);
+      setConnectedDevice(null);
+    });
     return () => {
       stateSubscription.remove();
     };
@@ -62,7 +60,7 @@ const AppNavigator = () => {
   useEffect(() => {
     // Bağlı cihaz menzilden çıkar / gücü kesilirse bağlantı koptu olarak işle.
     if (!connectedDevice) return;
-    const disconnectSubscription = bleManager.onDeviceDisconnected(
+    const disconnectSubscription = onDeviceDisconnected(
       connectedDevice.id,
       () => {
         const { manuallyDisconnected } = useBluetoothStore.getState();

@@ -8,81 +8,88 @@ import {
   StatusBar,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Buffer } from "buffer";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import styles from "./styles";
 import { useNavigation } from "@react-navigation/native";
 import {
   AppNavigationProp,
-  BluetoothDevice,
   useBluetoothStore,
-  NUS_SERVICE,
-  NUS_RX,
-  NUS_TX,
+  BluetoothDevice,
 } from "../constants";
+import { connect, isSupported } from "../BTControlLib";
 
-// Tarayıcının Web Bluetooth (GATT) cihazını Android'deki BluetoothDevice
-// yüzeyine saran adapter. Böylece diğer ekranlar (Communication, CarControl)
-// cihazı android ile bire bir aynı şekilde (write/disconnect/onDataReceived)
-// kullanır. Veri akışı base64'tür: write düz metni RX'e yazar, onDataReceived
-// ise TX bildirimlerini base64 olarak iletir (android ile aynı davranış).
-const createBleDevice = (
-  bleDevice: any, // BluetoothDevice (Web Bluetooth)
-  server: any, // BluetoothRemoteGATTServer
-  rx: any, // RX karakteristiği (write)
-  tx: any // TX karakteristiği (notify)
-): BluetoothDevice => {
+const BAUD_RATE = 9600;
+
+// Tarayıcı seri portunu (Web Serial API) Android'deki BluetoothDevice yüzeyine
+// saran adapter. Böylece diğer ekranlar (Communication, CarControl) cihazı
+// android ile bire bir aynı şekilde (write/disconnect/onDataReceived) kullanır.
+const createSerialDevice = (port: any, name: string): BluetoothDevice => {
   const listeners = new Set<(event: { data: string }) => void>();
+  let reading = true;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
-  // Web Bluetooth aynı anda yalnızca TEK bir GATT işlemine izin verir; eşzamanlı
-  // çağrılar "GATT operation already in progress" hatası verir. Bu yüzden tüm GATT
-  // işlemlerini (write / start-stopNotifications) tek bir kuyrukta seri çalıştırıyoruz.
-  let gattQueue: Promise<unknown> = Promise.resolve();
-  const enqueueGatt = <T,>(op: () => Promise<T>): Promise<T> => {
-    // Önceki işlem başarısız olsa da kuyruk devam etsin diye iki dalda da op'u çalıştır.
-    const run = gattQueue.then(op, op);
-    gattQueue = run.then(
-      () => undefined,
-      () => undefined
-    );
-    return run;
-  };
+  const startReadLoop = async () => {
+    let textBuffer = "";
+    const decoder = new TextDecoder();
 
-  const handleNotify = (event: any) => {
-    const value: DataView = event.target.value;
-    if (!value) return;
-    const bytes = new Uint8Array(value.buffer);
-    const data = Buffer.from(bytes).toString("base64");
-    listeners.forEach((cb) => cb({ data }));
-  };
-  tx.addEventListener("characteristicvaluechanged", handleNotify);
-  enqueueGatt(() => tx.startNotifications()).catch(() => {});
-
-  const handleDisconnect = () => {
-    const { manuallyDisconnected, setConnectedDevice, setManuallyDisconnected } =
-      useBluetoothStore.getState();
-    setConnectedDevice(null);
-    if (!manuallyDisconnected) {
-      window.alert(
-        "Bağlantı Koptu ⚠️\nCihazın gücü kesildi veya menzilden çıkıldı."
-      );
+    while (reading && port.readable) {
+      try {
+        const activeReader = port.readable.getReader();
+        reader = activeReader;
+        while (reading) {
+          const { value, done } = await activeReader.read();
+          if (done) break;
+          if (value && value.length) {
+            textBuffer += decoder.decode(value, { stream: true });
+            // android'deki delimiter "\n" davranışı: satır satır yayınla
+            let nlIndex: number;
+            while ((nlIndex = textBuffer.indexOf("\n")) >= 0) {
+              const line = textBuffer.slice(0, nlIndex).replace(/\r$/, "");
+              textBuffer = textBuffer.slice(nlIndex + 1);
+              const data = Buffer.from(line, "utf-8").toString("base64");
+              listeners.forEach((cb) => cb({ data }));
+            }
+          }
+        }
+      } catch (e) {
+        // okuma hatası (ör. cihaz çıkarıldığında) — döngü sonlanır
+      } finally {
+        try {
+          reader?.releaseLock();
+        } catch (e) { }
+        reader = null;
+      }
+      if (!reading) break;
     }
-    setManuallyDisconnected(false);
   };
-  bleDevice.addEventListener("gattserverdisconnected", handleDisconnect);
+
+  startReadLoop();
 
   return {
-    name: bleDevice.name || "BLE Cihazı",
-    write: (data: string) => {
-      const bytes = new TextEncoder().encode(data);
-      // Hızlı komut akışında kuyruk hızlı boşalsın diye (varsa) yanıtsız yazma
-      // kullanılır; her durumda kuyruk üzerinden seri çalışır.
-      return enqueueGatt(() =>
-        rx.writeValueWithoutResponse
-          ? rx.writeValueWithoutResponse(bytes)
-          : rx.writeValue(bytes)
-      );
+    name,
+    write: async (data: string) => {
+      // Some browsers throw if the writable stream is temporarily locked by
+      // another writer (rapid writes from sliders). Retry a few times with a
+      // short backoff instead of crashing.
+      const encoded = new TextEncoder().encode(data);
+      const maxAttempts = 6;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const writer = port.writable.getWriter();
+          try {
+            await writer.write(encoded);
+            return;
+          } finally {
+            try { writer.releaseLock(); } catch (e) { }
+          }
+        } catch (e) {
+          // If locked, wait a bit and retry
+          if (attempt === maxAttempts - 1) throw e;
+          await new Promise((res) => setTimeout(res, 8 * (attempt + 1)));
+        }
+      }
     },
+
     onDataReceived: (listener) => {
       listeners.add(listener);
       return {
@@ -92,16 +99,13 @@ const createBleDevice = (
       };
     },
     disconnect: async () => {
-      bleDevice.removeEventListener("gattserverdisconnected", handleDisconnect);
+      reading = false;
       try {
-        tx.removeEventListener("characteristicvaluechanged", handleNotify);
-      } catch (e) {}
+        await reader?.cancel();
+      } catch (e) { }
       try {
-        await enqueueGatt(() => tx.stopNotifications());
-      } catch (e) {}
-      try {
-        if (server.connected) server.disconnect();
-      } catch (e) {}
+        await port.close();
+      } catch (e) { }
     },
   };
 };
@@ -118,35 +122,21 @@ export default function BluetoothConnectionScreen() {
   const [isConnecting, setIsConnecting] = useState(false);
 
   useEffect(() => {
-    if (typeof navigator !== "undefined" && !("bluetooth" in navigator)) {
+    if (!isSupported()) {
       window.alert(
-        "Hata: Tarayıcınız Web Bluetooth API desteklemiyor. Chrome veya Edge kullanın."
+        "Hata: Tarayıcınız Web Serial API desteklemiyor. Masaüstü Chrome veya Edge kullanın."
       );
     }
   }, []);
 
   const selectAndConnect = async () => {
-    if (typeof navigator === "undefined" || !("bluetooth" in navigator)) return;
-
-    let bleDevice: any;
-    try {
-      bleDevice = await (navigator as any).bluetooth.requestDevice({
-        filters: [{ services: [NUS_SERVICE] }],
-        optionalServices: [NUS_SERVICE],
-      });
-    } catch (error) {
-      return; // kullanıcı cihaz seçim penceresini iptal etti
-    }
+    if (!isSupported()) return;
 
     try {
       setIsConnecting(true);
 
-      const server = await bleDevice.gatt.connect();
-      const service = await server.getPrimaryService(NUS_SERVICE);
-      const rx = await service.getCharacteristic(NUS_RX);
-      const tx = await service.getCharacteristic(NUS_TX);
-
-      const device = createBleDevice(bleDevice, server, rx, tx);
+      const device = await connect();
+      if (!device) return; // kullanıcı cihaz seçimini iptal etti
 
       setManuallyDisconnected(false);
       setConnectedDevice(device);
@@ -182,17 +172,17 @@ export default function BluetoothConnectionScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Bağlantı Yönetimi</Text>
         <TouchableOpacity
-        onPress={() => {
-          const idx = navigation.getState()?.index ?? 0;
-          if (idx > 0 && typeof window !== 'undefined') {
-            window.history.go(-idx);
-          } else {
-            navigation.navigate('Home');
-          }
-        }}
-        style={styles.homeBtn}
+          onPress={() => {
+            const idx = navigation.getState()?.index ?? 0;
+            if (idx > 0 && typeof window !== 'undefined') {
+              window.history.go(-idx);
+            } else {
+              navigation.navigate('Home');
+            }
+          }}
+          style={styles.homeBtn}
         >
-        <MaterialCommunityIcons name="home" size={24} color="#1E293B" />
+          <MaterialCommunityIcons name="home" size={24} color="#1E293B" />
         </TouchableOpacity>
       </View>
 
@@ -228,8 +218,8 @@ export default function BluetoothConnectionScreen() {
                 {isConnecting
                   ? "Lütfen bekleyin..."
                   : connectedDevice
-                  ? connectedDevice.name
-                  : "Cihaz seçilmedi"}
+                    ? connectedDevice.name
+                    : "Cihaz seçilmedi"}
               </Text>
             </View>
           </View>

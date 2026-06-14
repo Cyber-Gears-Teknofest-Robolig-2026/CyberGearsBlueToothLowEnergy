@@ -12,7 +12,6 @@ import {
   useSafeAreaInsets,
   SafeAreaView,
 } from "react-native-safe-area-context";
-import { Buffer } from "buffer";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import styles from "./styles";
 import { useNavigation } from "@react-navigation/native";
@@ -96,9 +95,7 @@ export default function CommunicationScreen() {
   useEffect(() => {
     if (connectedDevice) {
       readSubscriptionRef.current = connectedDevice?.onDataReceived((event) => {
-        const receivedData = Buffer.from(event.data, "base64")
-          .toString("utf-8")
-          .trim();
+        const receivedData = event.data.trim();
 
         if (!receivedData) return;
 

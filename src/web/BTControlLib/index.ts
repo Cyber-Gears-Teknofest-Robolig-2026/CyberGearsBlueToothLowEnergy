@@ -1,127 +1,457 @@
 // ============================================================================
-// BTControlLib (web) — Web Bluetooth (GATT) taşıma katmanı
-// ----------------------------------------------------------------------------
-// Tarayıcılar BT Low Energy (GATT) üzerinden haberleşir. Bu dosya Web
-// Bluetooth API'sini kullanır: kullanıcı cihaz seçimini yapar, ardından
-// GATT servisi ve karakteristiklerine bağlanılır. Tipler/store sabitleri
-// (NUS UUID) ../constants içinde tutulur.
+// BTControlLib (web) — Bluetooth Low Energy / Web Bluetooth API
 // ============================================================================
 
 import {
   BluetoothDevice,
-  NUS_SERVICE,
-  NUS_RX,
-  NUS_TX,
   useBluetoothStore,
 } from "../constants";
 
-// Tarayıcı Web Bluetooth API'sini destekliyor mu?
-export const isSupported = (): boolean =>
-  typeof navigator !== "undefined" && "bluetooth" in navigator;
+const SERVICE_UUID = "8c17a100-2b31-4f52-9a68-7b126a090001";
+const RX_UUID = "8c17a100-2b31-4f52-9a68-7b126a090002";
+const TX_UUID = "8c17a100-2b31-4f52-9a68-7b126a090003";
 
-// Tarayıcının cihaz seçicisini açar, seçilen cihaza bağlanır ve ortak
-// BluetoothDevice yüzeyine sarar. Kullanıcı seçimi iptal ederse null döner;
-// bağlantı kurulamazsa hata fırlatır.
-export const connect = async (): Promise<BluetoothDevice | null> => {
-  if (!isSupported()) return null;
+const BLE_CHUNK_SIZE = 20;
 
-  let bleDevice: any;
-  try {
-    bleDevice = await (navigator as any).bluetooth.requestDevice({
-      filters: [{ services: [NUS_SERVICE] }],
-      optionalServices: [NUS_SERVICE],
-    });
-  } catch (error) {
-    return null; // kullanıcı cihaz seçim penceresini iptal etti
-  }
+// ============================================================================
+// Tarayıcı desteği
+// ============================================================================
 
-  const server = await bleDevice.gatt.connect();
-  const service = await server.getPrimaryService(NUS_SERVICE);
-  const rx = await service.getCharacteristic(NUS_RX);
-  const tx = await service.getCharacteristic(NUS_TX);
-
-  return wrapDevice(bleDevice, server, rx, tx);
+export const isSupported = (): boolean => {
+  return (
+    typeof window !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    "bluetooth" in navigator
+  );
 };
 
-// --- içsel yardımcı -----------------------------------------------------------
+// ============================================================================
+// BLE cihaz seç ve bağlan
+// ============================================================================
 
-// Web Bluetooth (GATT) cihazını ortak BluetoothDevice yüzeyine sarar. write düz
-// metni byte'a çevirip RX'e yazar; onDataReceived TX bildirimlerinin byte'larını
-// düz metne çözer. Böylece kodlama detayı ekranlara sızmaz.
-const wrapDevice = (
-  bleDevice: any, // BluetoothDevice (Web Bluetooth)
-  server: any, // BluetoothRemoteGATTServer
-  rx: any, // RX karakteristiği (write)
-  tx: any // TX karakteristiği (notify)
-): BluetoothDevice => {
-  const listeners = new Set<(event: { data: string }) => void>();
+export const connect = async (): Promise<BluetoothDevice | null> => {
+  if (typeof window === "undefined") {
+    throw new Error("Bu işlem yalnızca tarayıcıda kullanılabilir.");
+  }
 
-  // Web Bluetooth aynı anda yalnızca TEK bir GATT işlemine izin verir; eşzamanlı
-  // çağrılar "GATT operation already in progress" hatası verir. Bu yüzden tüm
-  // GATT işlemlerini tek bir kuyrukta seri çalıştırıyoruz.
-  let gattQueue: Promise<unknown> = Promise.resolve();
-  const enqueueGatt = <T,>(op: () => Promise<T>): Promise<T> => {
-    const run = gattQueue.then(op, op);
-    gattQueue = run.then(
-      () => undefined,
-      () => undefined
+  if (!window.isSecureContext) {
+    throw new Error(
+      "Web Bluetooth güvenli bağlantı gerektirir.\n\n" +
+      "Sayfayı şu adreslerden biriyle açın:\n" +
+      "• http://localhost:PORT\n" +
+      "• https://alan-adiniz.com\n\n" +
+      "http://192.168.x.x gibi yerel IP adresleri çalışmaz."
     );
-    return run;
-  };
+  }
 
-  const handleNotify = (event: any) => {
-    const value: DataView = event.target.value;
-    if (!value) return;
-    const bytes = new Uint8Array(value.buffer);
-    const data = new TextDecoder().decode(bytes);
-    listeners.forEach((cb) => cb({ data }));
-  };
-  tx.addEventListener("characteristicvaluechanged", handleNotify);
-  enqueueGatt(() => tx.startNotifications()).catch(() => {});
+  if (!isSupported()) {
+    throw new Error(
+      "Bu tarayıcı Web Bluetooth özelliğini desteklemiyor.\n\n" +
+      "Masaüstünde güncel Google Chrome veya Microsoft Edge kullanın."
+    );
+  }
 
-  // Bağlantı koparsa (güç/menzil) durumu temizle ve (manuel değilse) uyar.
-  const handleDisconnect = () => {
-    const { manuallyDisconnected, setConnectedDevice, setManuallyDisconnected } =
-      useBluetoothStore.getState();
-    setConnectedDevice(null);
-    if (!manuallyDisconnected) {
-      window.alert(
-        "Bağlantı Koptu ⚠️\nCihazın gücü kesildi veya menzilden çıkıldı."
+  const bluetooth = (navigator as any).bluetooth;
+
+  let nativeDevice: any;
+
+  try {
+    /*
+     * Bu çağrı cihaz seçim penceresini açar.
+     *
+     * acceptAllDevices kullanıldığı için servis UUID'sini reklam paketinde
+     * yayınlamayan BLE cihazları da listede görünebilir.
+     */
+    nativeDevice = await bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [SERVICE_UUID],
+    });
+  } catch (error: unknown) {
+    const errorName =
+      typeof error === "object" &&
+        error !== null &&
+        "name" in error
+        ? String((error as { name: unknown }).name)
+        : "";
+
+    const errorMessage =
+      error instanceof Error
+        ? error.message
+        : String(error);
+
+    // Kullanıcı seçim ekranında İptal'e bastı.
+    if (errorName === "NotFoundError") {
+      return null;
+    }
+
+    if (errorName === "SecurityError") {
+      throw new Error(
+        "Tarayıcı Bluetooth erişimini güvenlik nedeniyle engelledi.\n\n" +
+        "Sayfayı doğrudan Chrome veya Edge'de, HTTPS ya da localhost " +
+        "üzerinden açın.\n\n" +
+        `Tarayıcı mesajı: ${errorMessage}`
       );
     }
-    setManuallyDisconnected(false);
-  };
-  bleDevice.addEventListener("gattserverdisconnected", handleDisconnect);
 
-  return {
-    name: bleDevice.name || "BLE Cihazı",
-    write: (data: string) => {
-      const bytes = new TextEncoder().encode(data);
-      return enqueueGatt(() =>
-        rx.writeValueWithoutResponse
-          ? rx.writeValueWithoutResponse(bytes)
-          : rx.writeValue(bytes)
+    if (errorName === "NotAllowedError") {
+      throw new Error(
+        "Bluetooth izni verilmedi veya istek kullanıcı tıklaması dışında yapıldı.\n\n" +
+        "Bağlanma işlemini doğrudan butonun onPress/onClick olayından çağırın.\n\n" +
+        `Tarayıcı mesajı: ${errorMessage}`
       );
+    }
+
+    throw new Error(
+      `BLE cihaz seçim ekranı açılamadı.\n\n${errorMessage}`
+    );
+  }
+
+  if (!nativeDevice) {
+    return null;
+  }
+
+  if (!nativeDevice.gatt) {
+    throw new Error(
+      "Seçilen aygıt BLE GATT bağlantısını desteklemiyor."
+    );
+  }
+
+  try {
+    const server = await nativeDevice.gatt.connect();
+
+    const service = await server.getPrimaryService(
+      SERVICE_UUID
+    );
+
+    const rxCharacteristic =
+      await service.getCharacteristic(RX_UUID);
+
+    const txCharacteristic =
+      await service.getCharacteristic(TX_UUID);
+
+    return await wrapDevice(
+      nativeDevice,
+      rxCharacteristic,
+      txCharacteristic
+    );
+  } catch (error) {
+    try {
+      if (nativeDevice.gatt?.connected) {
+        nativeDevice.gatt.disconnect();
+      }
+    } catch (_) { }
+
+    throw new Error(
+      "BLE cihazına bağlanıldı ancak servis veya karakteristikler bulunamadı.\n\n" +
+      "Arduino tarafında SERVICE_UUID, RX_UUID ve TX_UUID değerlerini kontrol edin.\n\n" +
+      `Ayrıntı: ${getErrorMessage(error)}`
+    );
+  }
+};
+
+// ============================================================================
+// BLE cihazını mevcut BluetoothDevice arayüzüne dönüştür
+// ============================================================================
+
+const wrapDevice = async (
+  nativeDevice: any,
+  rxCharacteristic: any,
+  txCharacteristic: any
+): Promise<BluetoothDevice> => {
+  const listeners = new Set<
+    (event: { data: string }) => void
+  >();
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder("utf-8");
+
+  let receiveBuffer = "";
+  let closed = false;
+  let manuallyDisconnected = false;
+
+  let writeQueue: Promise<void> = Promise.resolve();
+
+  const clearStore = (): void => {
+    try {
+      const store = useBluetoothStore.getState();
+      store.setConnectedDevice(null);
+      store.setManuallyDisconnected(false);
+    } catch (_) { }
+  };
+
+  const handleDisconnected = (): void => {
+    if (closed) {
+      return;
+    }
+
+    closed = true;
+    listeners.clear();
+    receiveBuffer = "";
+
+    let storeManualDisconnect = false;
+
+    try {
+      const store = useBluetoothStore.getState();
+
+      storeManualDisconnect =
+        store.manuallyDisconnected === true;
+
+      store.setConnectedDevice(null);
+      store.setManuallyDisconnected(false);
+    } catch (_) { }
+
+    if (
+      !manuallyDisconnected &&
+      !storeManualDisconnect
+    ) {
+      window.alert(
+        "Bağlantı Koptu ⚠️\n" +
+        "Cihaz kapandı, menzil dışına çıktı veya bağlantı kesildi."
+      );
+    }
+  };
+
+  const handleValueChanged = (event: any): void => {
+    const value = event?.target?.value;
+
+    if (!value) {
+      return;
+    }
+
+    try {
+      const bytes = new Uint8Array(
+        value.buffer,
+        value.byteOffset,
+        value.byteLength
+      );
+
+      receiveBuffer += decoder.decode(bytes, {
+        stream: true,
+      });
+
+      let newlineIndex: number;
+
+      while (
+        (newlineIndex = receiveBuffer.indexOf("\n")) >= 0
+      ) {
+        let line = receiveBuffer.slice(0, newlineIndex);
+
+        receiveBuffer = receiveBuffer.slice(
+          newlineIndex + 1
+        );
+
+        if (line.endsWith("\r")) {
+          line = line.slice(0, -1);
+        }
+
+        listeners.forEach((listener) => {
+          listener({ data: line });
+        });
+      }
+    } catch (error) {
+      console.error(
+        "BLE verisi çözümlenemedi:",
+        error
+      );
+    }
+  };
+
+  nativeDevice.addEventListener(
+    "gattserverdisconnected",
+    handleDisconnected
+  );
+
+  txCharacteristic.addEventListener(
+    "characteristicvaluechanged",
+    handleValueChanged
+  );
+
+  try {
+    await txCharacteristic.startNotifications();
+  } catch (error) {
+    try {
+      txCharacteristic.removeEventListener(
+        "characteristicvaluechanged",
+        handleValueChanged
+      );
+
+      nativeDevice.removeEventListener(
+        "gattserverdisconnected",
+        handleDisconnected
+      );
+
+      if (nativeDevice.gatt?.connected) {
+        nativeDevice.gatt.disconnect();
+      }
+    } catch (_) { }
+
+    throw new Error(
+      `TX notification başlatılamadı: ${getErrorMessage(error)}`
+    );
+  }
+
+  const writeChunk = async (
+    chunk: Uint8Array
+  ): Promise<void> => {
+    const properties = rxCharacteristic.properties;
+
+    if (
+      properties?.write &&
+      typeof rxCharacteristic.writeValueWithResponse ===
+      "function"
+    ) {
+      await rxCharacteristic.writeValueWithResponse(
+        chunk
+      );
+      return;
+    }
+
+    if (
+      properties?.writeWithoutResponse &&
+      typeof rxCharacteristic.writeValueWithoutResponse ===
+      "function"
+    ) {
+      await rxCharacteristic.writeValueWithoutResponse(
+        chunk
+      );
+      return;
+    }
+
+    if (
+      typeof rxCharacteristic.writeValue === "function"
+    ) {
+      await rxCharacteristic.writeValue(chunk);
+      return;
+    }
+
+    if (
+      typeof rxCharacteristic.writeValueWithResponse ===
+      "function"
+    ) {
+      await rxCharacteristic.writeValueWithResponse(
+        chunk
+      );
+      return;
+    }
+
+    if (
+      typeof rxCharacteristic.writeValueWithoutResponse ===
+      "function"
+    ) {
+      await rxCharacteristic.writeValueWithoutResponse(
+        chunk
+      );
+      return;
+    }
+
+    throw new Error(
+      "RX karakteristiği yazmayı desteklemiyor."
+    );
+  };
+
+  const wrappedDevice: BluetoothDevice = {
+    name:
+      nativeDevice.name ??
+      "Bluetooth LE Cihazı",
+
+    write: async (data: string): Promise<void> => {
+      if (
+        closed ||
+        !nativeDevice.gatt?.connected
+      ) {
+        throw new Error(
+          "Bluetooth LE bağlantısı kapalı."
+        );
+      }
+
+      const bytes = encoder.encode(data);
+
+      const operation = async (): Promise<void> => {
+        for (
+          let offset = 0;
+          offset < bytes.length;
+          offset += BLE_CHUNK_SIZE
+        ) {
+          const chunk = bytes.slice(
+            offset,
+            offset + BLE_CHUNK_SIZE
+          );
+
+          await writeChunk(chunk);
+        }
+      };
+
+      const currentWrite =
+        writeQueue.then(operation);
+
+      writeQueue = currentWrite.catch(() => { });
+
+      await currentWrite;
     },
+
     onDataReceived: (listener) => {
       listeners.add(listener);
+
       return {
         remove: () => {
           listeners.delete(listener);
         },
       };
     },
-    disconnect: async () => {
-      bleDevice.removeEventListener("gattserverdisconnected", handleDisconnect);
+
+    disconnect: async (): Promise<void> => {
+      if (closed) {
+        return;
+      }
+
+      manuallyDisconnected = true;
+
       try {
-        tx.removeEventListener("characteristicvaluechanged", handleNotify);
-      } catch (e) {}
+        const store = useBluetoothStore.getState();
+        store.setManuallyDisconnected(true);
+      } catch (_) { }
+
       try {
-        await enqueueGatt(() => tx.stopNotifications());
-      } catch (e) {}
+        await txCharacteristic.stopNotifications();
+      } catch (_) { }
+
       try {
-        if (server.connected) server.disconnect();
-      } catch (e) {}
+        txCharacteristic.removeEventListener(
+          "characteristicvaluechanged",
+          handleValueChanged
+        );
+      } catch (_) { }
+
+      try {
+        nativeDevice.removeEventListener(
+          "gattserverdisconnected",
+          handleDisconnected
+        );
+      } catch (_) { }
+
+      listeners.clear();
+      receiveBuffer = "";
+
+      try {
+        if (nativeDevice.gatt?.connected) {
+          nativeDevice.gatt.disconnect();
+        }
+      } finally {
+        closed = true;
+        clearStore();
+      }
     },
   };
+
+  return wrappedDevice;
+};
+
+const getErrorMessage = (
+  error: unknown
+): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 };

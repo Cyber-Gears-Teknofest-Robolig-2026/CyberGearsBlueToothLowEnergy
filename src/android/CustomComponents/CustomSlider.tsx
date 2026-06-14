@@ -162,8 +162,7 @@ export default function CustomSlider({
           ]}
         >
           <View
-            pointerEvents="none"
-            style={{
+            style={{ pointerEvents: "none",
               position: 'absolute',
               left: trackCrossOffset,
               top: 0,
@@ -174,8 +173,7 @@ export default function CustomSlider({
             }}
           />
           <View
-            pointerEvents="none"
-            style={{
+            style={{ pointerEvents: "none",
               position: 'absolute',
               left: trackCrossOffset,
               bottom: 0,
@@ -186,8 +184,7 @@ export default function CustomSlider({
             }}
           />
           <View
-            pointerEvents="none"
-            style={{
+            style={{ pointerEvents: "none",
               position: 'absolute',
               left: thumbCrossOffset,
               bottom: thumbOffset,
@@ -212,8 +209,7 @@ export default function CustomSlider({
         ]}
       >
         <View
-          pointerEvents="none"
-          style={{
+          style={{ pointerEvents: "none",
             position: 'absolute',
             top: trackCrossOffset,
             left: 0,
@@ -224,8 +220,7 @@ export default function CustomSlider({
           }}
         />
         <View
-          pointerEvents="none"
-          style={{
+          style={{ pointerEvents: "none",
             position: 'absolute',
             top: trackCrossOffset,
             left: 0,
@@ -236,8 +231,7 @@ export default function CustomSlider({
           }}
         />
         <View
-          pointerEvents="none"
-          style={{
+          style={{ pointerEvents: "none",
             position: 'absolute',
             top: thumbCrossOffset,
             left: thumbOffset,

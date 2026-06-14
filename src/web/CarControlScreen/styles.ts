@@ -103,10 +103,7 @@ const styles = StyleSheet.create({
   activeTab: {
     backgroundColor: '#0A84FF',
     elevation: 4,
-    shadowColor: '#0A84FF',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.22,
-    shadowRadius: 7,
+    boxShadow: "0px 3px 7px rgba(10, 132, 255, 0.22)",
   },
 
   tabText: {
@@ -136,10 +133,7 @@ const styles = StyleSheet.create({
     borderColor: '#D5DFEA',
     gap: 10,
     elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
+    boxShadow: "0px 2px 4px rgba(0, 0, 0, 0.06)",
   },
 
   headerPillIconBox: {
@@ -224,10 +218,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D5DFEA',
     elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.1)",
   },
 
   cardSmall: {
@@ -239,10 +230,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D5DFEA',
     elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.1)",
   },
 
   cardHeader: {
@@ -293,10 +281,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginVertical: 2,
     elevation: 4,
-    shadowColor: '#0A84FF',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.22,
-    shadowRadius: 7,
+    boxShadow: "0px 3px 7px rgba(10, 132, 255, 0.22)",
   },
 
   directionCenter: {
@@ -362,10 +347,7 @@ const styles = StyleSheet.create({
     minHeight: 100,
     borderRadius: 18,
     elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.1)",
   },
 
   ziplineOpen: {
@@ -401,10 +383,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D5DFEA',
     elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.1)",
   },
 
   speedHeaderRow: {
@@ -427,10 +406,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
-    shadowColor: '#0A84FF',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.22,
-    shadowRadius: 7,
+    boxShadow: "0px 3px 7px rgba(10, 132, 255, 0.22)",
     zIndex: 3,
     cursor: 'pointer' as any,
   },
@@ -494,10 +470,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 8,
     elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.1)",
   },
 
   armCardHorizontal: {
@@ -512,10 +485,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     gap: 10,
     elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.1)",
   },
 
   armHTitleBox: {
@@ -547,10 +517,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
-    shadowColor: '#0A84FF',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.22,
-    shadowRadius: 7,
+    boxShadow: "0px 3px 7px rgba(10, 132, 255, 0.22)",
     zIndex: 3,
     cursor: 'pointer' as any,
   },

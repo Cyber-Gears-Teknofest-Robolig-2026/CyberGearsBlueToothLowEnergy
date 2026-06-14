@@ -3,7 +3,6 @@ import {
   PanResponder,
   View,
   useWindowDimensions,
-  PermissionsAndroid,
   TouchableOpacity,
   Alert,
   ActivityIndicator,
@@ -17,7 +16,6 @@ import {
 } from "react-native";
 import { useState, useRef, useEffect } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Device } from "react-native-ble-plx";
 import {
   useSafeAreaInsets,
   SafeAreaView,
@@ -29,13 +27,15 @@ import { useNavigation } from "@react-navigation/native";
 import {
   AppNavigationProp,
   useBluetoothStore,
-  bleManager,
-  connectToNusDevice,
-  NUS_SERVICE,
+  ScannedDevice,
 } from "../constants";
-
-// Kaydedilen/taranan cihazların hafif gösterimi (tam Device gerekmez).
-type ScannedDevice = { id: string; name: string };
+import {
+  requestPermissions,
+  ensureEnabled,
+  startScan as bleStartScan,
+  stopScan as bleStopScan,
+  connect,
+} from "../BTControlLib";
 
 export default function BluetoothConnectionScreen() {
 
@@ -56,7 +56,7 @@ export default function BluetoothConnectionScreen() {
   const SNAP_PARTIAL = SCREEN_HEIGHT * 0.35;
   const SNAP_CLOSED = SCREEN_HEIGHT;
 
-  const [devices, setDevices] = useState<Device[]>([]);
+  const [devices, setDevices] = useState<ScannedDevice[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -90,24 +90,12 @@ export default function BluetoothConnectionScreen() {
     }
   };
 
-  // BLE tarama/bağlanma izinlerini ister (Android 12+).
-  const requestBlePermissions = async (): Promise<boolean> => {
-    const result = await PermissionsAndroid.requestMultiple([
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-    ]);
-    return (
-      result[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === "granted" &&
-      result[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === "granted"
-    );
-  };
-
   const stopScan = () => {
     if (scanTimeoutRef.current) {
       clearTimeout(scanTimeoutRef.current);
       scanTimeoutRef.current = null;
     }
-    try { bleManager.stopDeviceScan(); } catch (e) { }
+    bleStopScan();
     setScanning(false);
   };
 
@@ -149,27 +137,15 @@ export default function BluetoothConnectionScreen() {
     stopScan();
   };
 
-  // Bluetooth kapalıysa kullanıcıdan açmasını ister.
-  const ensureBluetoothOn = async (): Promise<boolean> => {
-    const state = await bleManager.state();
-    if (state === "PoweredOn") return true;
-    try {
-      await bleManager.enable();
-      return true;
-    } catch (error) {
-      return false;
-    }
-  };
-
   const openBluetoothModal = async () => {
 
-    const permitted = await requestBlePermissions();
+    const permitted = await requestPermissions();
     if (!permitted) {
       Alert.alert('Permissions Required', 'Bluetooth permissions are required to scan and connect to devices.');
       return;
     }
 
-    if (!(await ensureBluetoothOn())) {
+    if (!(await ensureEnabled())) {
       Alert.alert('Hata', 'Bu ayara girilebilmesi için Bluetooth açık olmalıdır!');
       return;
     }
@@ -180,33 +156,34 @@ export default function BluetoothConnectionScreen() {
     setDevices([]);
     setScanning(true);
 
-    // Sadece NUS servisini yayınlayan cihazları tara.
-    const found = new Map<string, Device>();
-    bleManager.startDeviceScan([NUS_SERVICE], null, (error, device) => {
-      if (error) {
+    // Cihazları tara (eşleşmiş + keşfedilen). Tekilleştirme burada yapılır.
+    const found = new Map<string, ScannedDevice>();
+    bleStartScan(
+      (device) => {
+        if (!found.has(device.id)) {
+          found.set(device.id, device);
+          setDevices(Array.from(found.values()));
+        }
+      },
+      () => {
         stopScan();
         Alert.alert('Hata', 'Cihazlar taranamadı.');
-        return;
       }
-      if (device && !found.has(device.id)) {
-        found.set(device.id, device);
-        setDevices(Array.from(found.values()));
-      }
-    });
+    );
 
     // 10 sn sonra taramayı durdur.
     scanTimeoutRef.current = setTimeout(stopScan, 10000);
   };
 
   const connectToDevice = async (device: { id: string }) => {
-    if (!(await ensureBluetoothOn())) {
+    if (!(await ensureEnabled())) {
       Alert.alert('Hata', 'Bu cihaza bağlanabilmesi için Bluetooth açık olmalıdır!');
       return;
     }
     try {
       closeModal();
       setIsConnecting(true);
-      const connected = await connectToNusDevice(device.id);
+      const connected = await connect(device.id);
       setConnectedDevice(connected);
       setMessages([]);
       saveLastConnectedDevice({ id: device.id, name: connected.name });
@@ -244,11 +221,12 @@ export default function BluetoothConnectionScreen() {
     }
   };
 
-  const renderDevice = ({ item }: { item: Device }) => {
+  const renderDevice = ({ item }: { item: ScannedDevice }) => {
 
     const isConnected = connectedDevice?.address === item.id;
-    const cardStyle = isConnected ? styles.connectedCard : styles.newCard;
-    const iconColor = isConnected ? "#fff" : "#64748B";
+    const isPaired = item.bonded;
+    const cardStyle = isConnected ? styles.connectedCard : isPaired ? styles.pairedCard : styles.newCard;
+    const iconColor = isConnected ? "#fff" : isPaired ? "#0284C7" : "#64748B";
 
     return (
       <Pressable
@@ -263,17 +241,17 @@ export default function BluetoothConnectionScreen() {
           <MaterialCommunityIcons name={isConnected ? "bluetooth-connect" : "bluetooth"} size={22} color={iconColor} />
         </View>
         <View style={styles.listTextSection}>
-          <Text style={styles.deviceName} numberOfLines={1}>{item.name || item.localName || "Bilinmeyen Cihaz"}</Text>
+          <Text style={styles.deviceName} numberOfLines={1}>{item.name || "Bilinmeyen Cihaz"}</Text>
           <Text style={styles.deviceAddress}>{item.id}</Text>
           <View style={styles.badgeRow}>
-            <View style={[styles.statusBadge, isConnected ? styles.connectedBadge : styles.newBadge]}>
-              <Text style={[styles.statusBadgeText, isConnected ? styles.connectedBadgeText : styles.newBadgeText]}>
-                {isConnected ? "BAĞLI" : "YENİ CİHAZ"}
+            <View style={[styles.statusBadge, isConnected ? styles.connectedBadge : isPaired ? styles.pairedBadge : styles.newBadge]}>
+              <Text style={[styles.statusBadgeText, isConnected ? styles.connectedBadgeText : isPaired ? styles.pairedBadgeText : styles.newBadgeText]}>
+                {isConnected ? "BAĞLI" : isPaired ? "EŞLEŞMİŞ" : "YENİ CİHAZ"}
               </Text>
             </View>
           </View>
         </View>
-        <MaterialCommunityIcons name={isConnected ? "link-off" : "chevron-right"} size={24} color={isConnected ? "#EF4444" : "#CBD5E1"} />
+        <MaterialCommunityIcons name={isConnected ? "link-off" : "chevron-right"} size={24} color={isConnected ? "#EF4444" : isPaired ? "#7DD3FC" : "#CBD5E1"} />
       </Pressable>
     );
   };

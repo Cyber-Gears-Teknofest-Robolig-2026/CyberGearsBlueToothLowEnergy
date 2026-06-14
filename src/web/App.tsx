@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import React from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -11,6 +11,29 @@ import {
   RootStackParamList,
   useSettingsStore,
 } from "./constants";
+
+// Shim for react-native-web deprecation: move any props.pointerEvents -> style.pointerEvents
+// This runs only in web (window defined) and ensures third-party or forwarded props
+// that still use the old prop form are normalized to style form before element creation.
+if (typeof window !== "undefined") {
+  try {
+    const R = require("react");
+    const origCreate = R.createElement;
+    if (origCreate && !(R as any).__pointerEventsPatched) {
+      (R as any).createElement = function (type: any, props: any, ...children: any[]) {
+        if (props && props.pointerEvents !== undefined) {
+          const { pointerEvents, style, ...rest } = props;
+          const newStyle = Array.isArray(style) ? [...style, { pointerEvents }] : { ...(style || {}), pointerEvents };
+          return origCreate.apply(this, [type, { ...rest, style: newStyle }, ...children]);
+        }
+        return origCreate.apply(this, [type, props, ...children]);
+      };
+      (R as any).__pointerEventsPatched = true;
+    }
+  } catch (e) {
+    // ignore if patching fails
+  }
+}
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 

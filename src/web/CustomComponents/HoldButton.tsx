@@ -76,10 +76,9 @@ export default function HoldButton({
   return (
     <View
       ref={viewRef}
-      pointerEvents="box-only"
       style={[
         style,
-        { userSelect: 'none', cursor: 'pointer' } as any,
+        { userSelect: 'none', cursor: 'pointer', pointerEvents: 'box-only' } as any,
         pressed ? { opacity: activeOpacity } : null,
       ]}
       {...panResponder.panHandlers}
