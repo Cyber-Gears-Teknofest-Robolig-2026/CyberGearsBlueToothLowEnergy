@@ -130,11 +130,24 @@ export default function BluetoothConnectionScreen() {
   }, []);
 
   const selectAndConnect = async () => {
+<<<<<<< HEAD
     if (!isSupported()) return;
+=======
+      if (!isSupported()) {
+        // Daha iyi kullanıcı geribildirimi — konsolda da göster.
+        console.warn('BTControlLib.isSupported() returned false');
+        window.alert('Tarayıcınız Bluetooth veya Web Serial API desteklemiyor veya gerekli izinler yok. Lütfen Chrome/Edge üzerinde https:// veya localhost kullanın.');
+        return;
+      }
 
-    try {
-      setIsConnecting(true);
+      try {
+        setIsConnecting(true);
+>>>>>>> b7c79382051522eefe2057b8307c70171e55a967
 
+        const device = await connect();
+        if (!device) return; // kullanıcı cihaz seçimini iptal etti
+
+<<<<<<< HEAD
       const device = await connect();
       if (!device) return; // kullanıcı cihaz seçimini iptal etti
 
@@ -142,6 +155,12 @@ export default function BluetoothConnectionScreen() {
       setConnectedDevice(device);
       setMessages([]);
     } catch (e) {
+=======
+        setManuallyDisconnected(false);
+        setConnectedDevice(device);
+        setMessages([]);
+      } catch (e) {
+>>>>>>> b7c79382051522eefe2057b8307c70171e55a967
       window.alert("Hata: Bağlantı kurulamadı.");
     } finally {
       setIsConnecting(false);

@@ -3,6 +3,10 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+export const NUS_SERVICE = "8C17A100-2B31-4F52-9A68-7B126A090001"
+export const NUS_RX = "8C17A100-2B31-4F52-9A68-7B126A090002"
+export const NUS_TX = "8C17A100-2B31-4F52-9A68-7B126A090003"
+
 export type RootStackParamList = {
   Home: undefined;
   BluetoothConnection: undefined;
@@ -14,7 +18,11 @@ export type RootStackParamList = {
 export type AppNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 // ----------------------------------------------------------------------------
+<<<<<<< HEAD
 // BlueTooth Low Energy (RFCOMM / SPP) — web'de Web Serial API üzerinden. UUID/servis
+=======
+// Bluetooth Low Energy (RFCOMM / SPP) — web'de Web Serial API üzerinden. UUID/servis
+>>>>>>> b7c79382051522eefe2057b8307c70171e55a967
 // gerekmez; satır temelli ('\n') düz metin çerçeveleme kullanılır (bkz.
 // ./BTControlLib).
 // ----------------------------------------------------------------------------
