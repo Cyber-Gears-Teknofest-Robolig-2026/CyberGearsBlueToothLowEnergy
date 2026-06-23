@@ -136,10 +136,10 @@ export default function RobotArmTab() {
       const key: keyof typeof sendValuesHeaders.robot_arm = `robot_arm_${index}` as keyof typeof sendValuesHeaders.robot_arm;
       switch (direction) {
         case "right":
-          await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${90 + speedValue}\r\n`);
+          await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${speedValue}\r\n`);
           break;
         case "left":
-          await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${90 - speedValue}\r\n`);
+          await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${-speedValue}\r\n`);
           break;
       }
     }
@@ -152,13 +152,13 @@ export default function RobotArmTab() {
           if (index_ == index) {
             switch (direction) {
               case "right":
-                return 90 + speedValue;
+                return speedValue;
               case "left":
-                return 90 - speedValue;
+                return -speedValue;
             }
           }
           else {
-            return 90;
+            return 0;
           }
         }
       })
@@ -170,7 +170,7 @@ export default function RobotArmTab() {
     console.log(`Arm ${index + 1} (360) Stop`);
     if (!allSendsValues.robot_arms) {
       const key: keyof typeof sendValuesHeaders.robot_arm = `robot_arm_${index}` as keyof typeof sendValuesHeaders.robot_arm;
-      await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${90}\r\n`);
+      await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${0}\r\n`);
     }
     else {
       const arm_values_new = armValues.map((value, index) => {
@@ -178,7 +178,7 @@ export default function RobotArmTab() {
           return value;
         }
         else {
-          return 90;
+          return 0;
         }
       })
       await connectedDevice?.write(`${sendValuesHeaders.robot_arm.all_robot_arms}:${arm_values_new.join(",")}\r\n`);

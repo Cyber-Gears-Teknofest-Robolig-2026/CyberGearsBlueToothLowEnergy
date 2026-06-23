@@ -340,14 +340,14 @@ function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
     console.log(`Arm ${index} (360) Rotating ${direction} at speed:`, speedValue);
     if (!allSendsValues.robot_arms) {
       const key: keyof typeof sendValuesHeaders.robot_arm = `robot_arm_${index}` as keyof typeof sendValuesHeaders.robot_arm;
-      switch(direction){case 'right': await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${90+speedValue}\r\n`); break; case 'left': await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${90-speedValue}\r\n`); break}
+      switch(direction){case 'right': await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${speedValue}\r\n`); break; case 'left': await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${-speedValue}\r\n`); break}
     } else {
-      const arm_values_new = armValues.map((value, index_) => { if (!armIs360[index_]) return value; else { if (index_==index){ switch(direction){case 'right': return 90+speedValue; case 'left': return 90-speedValue;} } else return 90; } });
+      const arm_values_new = armValues.map((value, index_) => { if (!armIs360[index_]) return value; else { if (index_==index){ switch(direction){case 'right': return speedValue; case 'left': return -speedValue;} } else return 0; } });
       await connectedDevice?.write(`${sendValuesHeaders.robot_arm.all_robot_arms}:${arm_values_new.join(',')}\r\n`);
     }
   };
 
-  const handle360RotationStop = async (index:number)=>{ console.log(`Arm ${index + 1} (360) Stop`); if(!allSendsValues.robot_arms){ const key: keyof typeof sendValuesHeaders.robot_arm = `robot_arm_${index}` as keyof typeof sendValuesHeaders.robot_arm; await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${90}\r\n`);} else { const arm_values_new = armValues.map((value, idx)=> !armIs360[idx]? value:90); await connectedDevice?.write(`${sendValuesHeaders.robot_arm.all_robot_arms}:${arm_values_new.join(',')}\r\n`); } };
+  const handle360RotationStop = async (index:number)=>{ console.log(`Arm ${index + 1} (360) Stop`); if(!allSendsValues.robot_arms){ const key: keyof typeof sendValuesHeaders.robot_arm = `robot_arm_${index}` as keyof typeof sendValuesHeaders.robot_arm; await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${0}\r\n`);} else { const arm_values_new = armValues.map((value, idx)=> !armIs360[idx]? value:0); await connectedDevice?.write(`${sendValuesHeaders.robot_arm.all_robot_arms}:${arm_values_new.join(',')}\r\n`); } };
 
   const resetArm = (index:number)=>{ const def = armIs360[index] ? ARM_DEFAULT_VALUES[index].deg360 : ARM_DEFAULT_VALUES[index].deg180; console.log(`Arm ${index + 1} reset to default:`, def); handleArmChange(index, def); };
   const incrementArm = (index:number)=>handleArmChange(index, armValues[index]+ARM_STEP);
