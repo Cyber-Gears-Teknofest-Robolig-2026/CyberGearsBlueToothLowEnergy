@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   FlatList,
   TextInput,
@@ -19,7 +19,8 @@ import {
   KeyboardAvoidingView,
   KeyboardStickyView,
 } from "react-native-keyboard-controller";
-import styles from "./styles";
+import { makeStyles } from "./styles";
+import { useThemeColors } from "../theme";
 import { useNavigation } from "@react-navigation/native";
 import {
   AppNavigationProp,
@@ -36,6 +37,8 @@ interface Message {
 export default function CommunicationScreen() {
 
   const navigation = useNavigation<AppNavigationProp>();
+  const colors = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const connectedDevice = useBluetoothStore((state) => state.connectedDevice);
 
   const messages = useBluetoothStore((state) => state.messages);
@@ -246,7 +249,7 @@ export default function CommunicationScreen() {
             onPress={() => navigation.goBack()}
             style={styles.backButton}
           >
-            <MaterialCommunityIcons name="arrow-left" size={24} color="#000000" />
+            <MaterialCommunityIcons name="arrow-left" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
 
           <View style={styles.headerInfo}>
@@ -271,27 +274,27 @@ export default function CommunicationScreen() {
             })}
             style={styles.headerIconButton}
           >
-            <MaterialCommunityIcons name="home" size={25} color="#000000" />
+            <MaterialCommunityIcons name="home" size={25} color={colors.textPrimary} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => navigation.navigate('BluetoothConnection')}
             style={styles.headerIconButtonCog}
           >
-            <MaterialCommunityIcons name="cog" size={25} color="#000000" />
+            <MaterialCommunityIcons name="cog" size={25} color={colors.textPrimary} />
           </TouchableOpacity>
           {connectedDevice ? (
             <TouchableOpacity
               onPress={disconnectDevice}
               style={styles.headerIconButtonBluetoothOff}
             >
-              <MaterialCommunityIcons name="bluetooth-off" size={25} color="#FF0000" />
+              <MaterialCommunityIcons name="bluetooth-off" size={25} color={colors.danger} />
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
               onPress={() => navigation.navigate('BluetoothConnection')}
               style={styles.headerIconButtonBluetoothConnect}
             >
-              <MaterialCommunityIcons name="bluetooth-connect" size={25} color="#10B981" />
+              <MaterialCommunityIcons name="bluetooth-connect" size={25} color={colors.success} />
             </TouchableOpacity>
           )}
           <TouchableOpacity
@@ -357,7 +360,7 @@ export default function CommunicationScreen() {
               ref={inputRef}
               style={styles.textInput}
               placeholder="Mesaj yazın..."
-              placeholderTextColor="#54656F"
+              placeholderTextColor={colors.textMuted}
               value={inputText}
               onChangeText={setInputText}
               onFocus={() => {

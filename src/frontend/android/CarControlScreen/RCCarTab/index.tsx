@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   ScrollView,
   Text,
@@ -12,14 +12,12 @@ import { Entypo, MaterialIcons } from '@expo/vector-icons';
 import CustomSlider from '../../CustomComponents/CustomSlider';
 import HoldButton from '../../CustomComponents/HoldButton';
 import ToggleSwitch from '../../CustomComponents/ToggleSwitch';
-import styles from './styles';
+import { makeStyles } from './styles';
+import { useThemeColors } from '../../theme';
 import {
-  pwmMaxFromResolution,
   useBluetoothStore,
   useSettingsStore,
 } from '../../constants';
-
-const PWM_MIN = 0;
 
 const getSliderValue = (value: number | number[]) => {
   return Array.isArray(value) ? value[0] : value;
@@ -31,6 +29,8 @@ const clamp = (value: number, min: number, max: number) => {
 
 export default function RCCarTab() {
 
+  const colors = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const connectedDevice = useBluetoothStore((state) => state.connectedDevice);
 
   const sendValuesHeaders = useSettingsStore((state) => state.sendValuesHeaders);
@@ -44,10 +44,11 @@ export default function RCCarTab() {
   const LEFT_SPEED_DEFAULT = useSettingsStore((state) => state.leftMotorSpeedDefault);
   const LEFT_PWM_STEP = useSettingsStore((state) => state.leftMotorSpeedStepDefault);
 
-  // Her hız kontrolünün PWM üst sınırı kendi çözünürlüğünden türetilir: 2^res - 1 (8 bit -> 255).
-  const COMMON_PWM_MAX = pwmMaxFromResolution(useSettingsStore((state) => state.motorPwmResolutionDefault));
-  const RIGHT_PWM_MAX = pwmMaxFromResolution(useSettingsStore((state) => state.rightMotorPwmResolutionDefault));
-  const LEFT_PWM_MAX = pwmMaxFromResolution(useSettingsStore((state) => state.leftMotorPwmResolutionDefault));
+  // Kullanıcı hız sınırı (min/max): slider izi ve değer bununla kısıtlanır. Üst sınır,
+  // ayarlarda kaydedilirken zaten kanalın PWM çözünürlüğüne (2^res-1) göre kıstırılmıştır.
+  const COMMON_SPEED_LIMIT = useSettingsStore((state) => state.motorSpeedLimitDefault);
+  const RIGHT_SPEED_LIMIT = useSettingsStore((state) => state.rightMotorSpeedLimitDefault);
+  const LEFT_SPEED_LIMIT = useSettingsStore((state) => state.leftMotorSpeedLimitDefault);
 
   const [ziplineOpen, setZiplineOpen] = useState(false);
   const [vehicleScrollHeight, setVehicleScrollHeight] = useState(0);
@@ -55,12 +56,17 @@ export default function RCCarTab() {
   // Ortak (false) veya ayrı ayrı (true) hız kontrolü. Varsayılan ayarlardan gelir.
   const [separateMode, setSeparateMode] = useState(SEPARATE_DEFAULT);
 
-  const [speed, setSpeed] = useState(SPEED_DEFAULT);
-  const [speedInput, setSpeedInput] = useState(SPEED_DEFAULT.toString());
-  const [rightSpeed, setRightSpeed] = useState(RIGHT_SPEED_DEFAULT);
-  const [rightSpeedInput, setRightSpeedInput] = useState(RIGHT_SPEED_DEFAULT.toString());
-  const [leftSpeed, setLeftSpeed] = useState(LEFT_SPEED_DEFAULT);
-  const [leftSpeedInput, setLeftSpeedInput] = useState(LEFT_SPEED_DEFAULT.toString());
+  // Başlangıç değerini kendi [min, max] hız aralığına kıstır.
+  const initCommon = clamp(SPEED_DEFAULT, COMMON_SPEED_LIMIT.min, COMMON_SPEED_LIMIT.max);
+  const initRight = clamp(RIGHT_SPEED_DEFAULT, RIGHT_SPEED_LIMIT.min, RIGHT_SPEED_LIMIT.max);
+  const initLeft = clamp(LEFT_SPEED_DEFAULT, LEFT_SPEED_LIMIT.min, LEFT_SPEED_LIMIT.max);
+
+  const [speed, setSpeed] = useState(initCommon);
+  const [speedInput, setSpeedInput] = useState(initCommon.toString());
+  const [rightSpeed, setRightSpeed] = useState(initRight);
+  const [rightSpeedInput, setRightSpeedInput] = useState(initRight.toString());
+  const [leftSpeed, setLeftSpeed] = useState(initLeft);
+  const [leftSpeedInput, setLeftSpeedInput] = useState(initLeft.toString());
 
   const handleDirection = async (direction: string) => {
     // Moda göre her motorun hızı: ortakta ikisi de `speed`, ayrıda sağ/sol bağımsız.
@@ -121,22 +127,25 @@ export default function RCCarTab() {
   };
 
   // Tek bir hız kontrolünün (slider + −/+ + sayı girişi) tüm davranışlarını üretir.
+  // Değer kullanıcı ayarındaki [min, max] hız aralığına kıstırılır.
   const makeSpeedControl = (
     value: number,
     input: string,
     setValue: (n: number) => void,
     setInput: (s: string) => void,
     step: number,
+    min: number,
     max: number,
   ) => {
     const apply = (rawValue: number | number[]) => {
-      const pwmValue = clamp(getSliderValue(rawValue), PWM_MIN, max);
+      const pwmValue = clamp(getSliderValue(rawValue), min, max);
       setValue(pwmValue);
       setInput(pwmValue.toString());
     };
     return {
       value,
       input,
+      min,
       max,
       apply,
       increment: () => apply(value + step),
@@ -146,15 +155,15 @@ export default function RCCarTab() {
         setInput(onlyNumbers);
         if (onlyNumbers === '') return;
         const numValue = Number(onlyNumbers);
-        if (!Number.isNaN(numValue)) setValue(clamp(numValue, PWM_MIN, max));
+        if (!Number.isNaN(numValue)) setValue(clamp(numValue, min, max));
       },
       normalize: () => apply(input === '' ? value : Number(input)),
     };
   };
 
-  const commonSpeed = makeSpeedControl(speed, speedInput, setSpeed, setSpeedInput, PWM_STEP, COMMON_PWM_MAX);
-  const rightSpeedCtrl = makeSpeedControl(rightSpeed, rightSpeedInput, setRightSpeed, setRightSpeedInput, RIGHT_PWM_STEP, RIGHT_PWM_MAX);
-  const leftSpeedCtrl = makeSpeedControl(leftSpeed, leftSpeedInput, setLeftSpeed, setLeftSpeedInput, LEFT_PWM_STEP, LEFT_PWM_MAX);
+  const commonSpeed = makeSpeedControl(speed, speedInput, setSpeed, setSpeedInput, PWM_STEP, COMMON_SPEED_LIMIT.min, COMMON_SPEED_LIMIT.max);
+  const rightSpeedCtrl = makeSpeedControl(rightSpeed, rightSpeedInput, setRightSpeed, setRightSpeedInput, RIGHT_PWM_STEP, RIGHT_SPEED_LIMIT.min, RIGHT_SPEED_LIMIT.max);
+  const leftSpeedCtrl = makeSpeedControl(leftSpeed, leftSpeedInput, setLeftSpeed, setLeftSpeedInput, LEFT_PWM_STEP, LEFT_SPEED_LIMIT.min, LEFT_SPEED_LIMIT.max);
 
   const renderSpeedRow = (ctrl: ReturnType<typeof makeSpeedControl>, fillColor: string) => {
     const inputMaxLen = String(ctrl.max).length;
@@ -169,7 +178,7 @@ export default function RCCarTab() {
         <View style={styles.speedSliderBox}>
           <CustomSlider
             value={ctrl.value}
-            minimumValue={PWM_MIN}
+            minimumValue={ctrl.min}
             maximumValue={ctrl.max}
             step={1}
             onValueChange={ctrl.apply}
@@ -364,9 +373,9 @@ export default function RCCarTab() {
 
         {separateMode ? (
           <>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginTop: 10, marginBottom: 6 }}>Sağ Motor</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textSecondary, marginTop: 10, marginBottom: 6 }}>Sağ Motor</Text>
             {renderSpeedRow(rightSpeedCtrl, '#F59E0B')}
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginTop: 14, marginBottom: 6 }}>Sol Motor</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textSecondary, marginTop: 14, marginBottom: 6 }}>Sol Motor</Text>
             {renderSpeedRow(leftSpeedCtrl, '#22C55E')}
           </>
         ) : (

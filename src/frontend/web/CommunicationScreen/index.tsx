@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   FlatList,
   TextInput,
@@ -13,7 +13,8 @@ import {
   SafeAreaView,
 } from "react-native-safe-area-context";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import styles from "./styles";
+import { makeStyles } from "./styles";
+import { useThemeColors } from "../theme";
 import { useNavigation } from "@react-navigation/native";
 import {
   AppNavigationProp,
@@ -30,6 +31,8 @@ interface Message {
 export default function CommunicationScreen() {
 
   const navigation = useNavigation<AppNavigationProp>();
+  const colors = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const connectedDevice = useBluetoothStore((state) => state.connectedDevice);
 
   const messages = useBluetoothStore((state) => state.messages);
@@ -43,6 +46,16 @@ export default function CommunicationScreen() {
   const [inputText, setInputText] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Terminal benzeri komut geçmişi (yalnızca web): yukarı/aşağı ok ile gönderilen
+  // mesajlar arasında gezinme. `history` eski→yeni sırada gönderilen komutlardır;
+  // `historyIndex` null iken geçmişte gezinmiyoruz (taze taslak), değilse aktif index.
+  const [history, setHistory] = useState<string[]>(() =>
+    messages.filter((m) => m.mode === "sent").map((m) => m.text),
+  );
+  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+  // Geçmişe girmeden önceki taslak; en alta (yeni uca) dönünce geri yüklenir.
+  const historyDraftRef = useRef("");
 
   const flatListRef = useRef<FlatList<Message>>(null);
   const inputRef = useRef<TextInput>(null);
@@ -159,6 +172,11 @@ export default function CommunicationScreen() {
 
       currentMessageId.current++;
 
+      // Komut geçmişine ekle (üst üste aynı komutu tekrarlama) ve gezinmeyi sıfırla.
+      setHistory((h) => (h[h.length - 1] === sendedData ? h : [...h, sendedData]));
+      setHistoryIndex(null);
+      historyDraftRef.current = "";
+
       setInputText("");
       scrollToBottom(true, 150);
       // Gönderimden sonra odağı input'ta tut. Enter'da blurOnSubmit kapalı olsa da
@@ -172,7 +190,46 @@ export default function CommunicationScreen() {
 
   const handleMessagePress = (text: string) => {
     setInputText(text);
+    setHistoryIndex(null);
     inputRef.current?.focus();
+  };
+
+  // Kullanıcı elle yazınca komut geçmişi gezinmesinden çık (programatik value
+  // değişimi onChangeText tetiklemediği için ok ile gezerken burası çalışmaz).
+  const handleChangeText = (text: string) => {
+    setInputText(text);
+    if (historyIndex !== null) setHistoryIndex(null);
+  };
+
+  // Terminal mantığı: yukarı ok → daha eski komut, aşağı ok → daha yeni komut.
+  // En yeni komuttan bir aşağı inince geçmişe girmeden önceki taslak geri gelir.
+  const handleInputKeyPress = (e: any) => {
+    const key = e?.nativeEvent?.key;
+    if (key !== "ArrowUp" && key !== "ArrowDown") return;
+    if (history.length === 0) return;
+
+    // Tek satır input'ta okun imleci başa/sona atmasını engelle.
+    e?.preventDefault?.();
+
+    if (key === "ArrowUp") {
+      // Geçmişe ilk giriş: o anki taslağı sakla.
+      if (historyIndex === null) historyDraftRef.current = inputText;
+      const nextIndex =
+        historyIndex === null ? history.length - 1 : Math.max(0, historyIndex - 1);
+      setHistoryIndex(nextIndex);
+      setInputText(history[nextIndex]);
+    } else {
+      if (historyIndex === null) return;
+      const nextIndex = historyIndex + 1;
+      if (nextIndex >= history.length) {
+        // En yeni komutun da altına inildi: taslağı geri yükle, gezinmeyi bitir.
+        setHistoryIndex(null);
+        setInputText(historyDraftRef.current);
+      } else {
+        setHistoryIndex(nextIndex);
+        setInputText(history[nextIndex]);
+      }
+    }
   };
 
   const clearMessages = async () => {
@@ -184,6 +241,10 @@ export default function CommunicationScreen() {
     if (window.confirm("Ekrandaki bütün mesajlar silinecek. Emin misiniz?")) {
       setMessages([]);
       currentMessageId.current = 0;
+      // Geçmiş ekrandaki mesajlarla birlikte sıfırlanır.
+      setHistory([]);
+      setHistoryIndex(null);
+      historyDraftRef.current = "";
       window.alert("Mesajlar silindi");
     }
   };
@@ -213,7 +274,7 @@ export default function CommunicationScreen() {
             onPress={() => navigation.goBack()}
             style={styles.backButton}
           >
-            <MaterialCommunityIcons name="arrow-left" size={24} color="#000000" />
+            <MaterialCommunityIcons name="arrow-left" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
 
           <View style={styles.headerInfo}>
@@ -242,27 +303,27 @@ export default function CommunicationScreen() {
             }}
             style={styles.headerIconButton}
           >
-            <MaterialCommunityIcons name="home" size={25} color="#000000" />
+            <MaterialCommunityIcons name="home" size={25} color={colors.textPrimary} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => navigation.navigate('BluetoothConnection')}
             style={styles.headerIconButtonCog}
           >
-            <MaterialCommunityIcons name="cog" size={25} color="#000000" />
+            <MaterialCommunityIcons name="cog" size={25} color={colors.textPrimary} />
           </TouchableOpacity>
           {connectedDevice ? (
             <TouchableOpacity
               onPress={disconnectDevice}
               style={styles.headerIconButtonBluetoothOff}
             >
-              <MaterialCommunityIcons name="bluetooth-off" size={25} color="#FF0000" />
+              <MaterialCommunityIcons name="bluetooth-off" size={25} color={colors.danger} />
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
               onPress={() => navigation.navigate('BluetoothConnection')}
               style={styles.headerIconButtonBluetoothConnect}
             >
-              <MaterialCommunityIcons name="bluetooth-connect" size={25} color="#10B981" />
+              <MaterialCommunityIcons name="bluetooth-connect" size={25} color={colors.success} />
             </TouchableOpacity>
           )}
           <TouchableOpacity
@@ -324,9 +385,10 @@ export default function CommunicationScreen() {
               ref={inputRef}
               style={styles.textInput}
               placeholder="Mesaj yazın..."
-              placeholderTextColor="#54656F"
+              placeholderTextColor={colors.textMuted}
               value={inputText}
-              onChangeText={setInputText}
+              onChangeText={handleChangeText}
+              onKeyPress={handleInputKeyPress}
               onFocus={() => {
                 //setIsFocused(true);
                 //scrollToBottom(true, 150);

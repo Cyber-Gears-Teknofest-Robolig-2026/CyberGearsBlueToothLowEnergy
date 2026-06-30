@@ -97,6 +97,15 @@ export type ArmDefaultAngle = { deg180: number; deg360: number };
 /** 180° serbest modunda kolun açı sınırı (varsayılan açı ve araç kontrolü bununla kısıtlanır). */
 export type ArmAngleLimit = { min: number; max: number };
 
+/** 360° modunda kolun hız sınırı (varsayılan hız ve araç kontrolü bununla kısıtlanır; 0–90). */
+export type ArmSpeedLimit = { min: number; max: number };
+
+/** Motor hız sınırı (varsayılan hız ve araç kontrolü bununla kısıtlanır; 0–2^res-1). */
+export type MotorSpeedLimit = { min: number; max: number };
+
+/** 360° servo hız slider'ının üst sınırı (mutlak). */
+export const ARM_360_SPEED_MAX = 90;
+
 // ----------------------------------------------------------------------------
 // PWM çözünürlüğü (bit) -> değer aralığı. ESP32 LEDC gibi kanallarda duty
 // çözünürlüğü 8 bit olmak zorunda değil; res bit ise üst sınır 2^res - 1 olur
@@ -122,16 +131,28 @@ export type AppSettings = {
   motorPwmResolutionDefault: number;
   motorSpeedDefault: number;
   motorSpeedStepDefault: number;
+  /** Ortak motor hız min/max sınırı (0–2^res-1). Slider izi ve varsayılan hız bununla kısıtlanır. */
+  motorSpeedLimitDefault: MotorSpeedLimit;
   rightMotorPwmResolutionDefault: number;
   rightMotorSpeedDefault: number;
   rightMotorSpeedStepDefault: number;
+  rightMotorSpeedLimitDefault: MotorSpeedLimit;
   leftMotorPwmResolutionDefault: number;
   leftMotorSpeedDefault: number;
   leftMotorSpeedStepDefault: number;
+  leftMotorSpeedLimitDefault: MotorSpeedLimit;
   armsAre360Default: boolean[];
+  /**
+   * Her kolun açı yönü ters mi? (kol başına)
+   * - 180° servo: ters ise gönderilen açı `180 - açı` olur.
+   * - 360° servo: ters ise dönüş işareti tersine çevrilir (sağ negatif, sol pozitif).
+   */
+  armDirectionReversedDefault: boolean[];
   armValuesDefault: ArmDefaultAngle[];
   /** 180° modunda her kolun açı min/max sınırı (0–180). */
   armAngleLimitsDefault: ArmAngleLimit[];
+  /** 360° modunda her kolun hız min/max sınırı (0–90). */
+  armSpeedLimitsDefault: ArmSpeedLimit[];
   armValuesStepDefault: number;
   ziplineAnglesDefault: ZiplineAngles;
 };
@@ -167,13 +188,17 @@ export const defaultSettings: AppSettings = {
   motorPwmResolutionDefault: 8,
   motorSpeedDefault: 255,
   motorSpeedStepDefault: 5,
+  motorSpeedLimitDefault: { min: 0, max: 255 },
   rightMotorPwmResolutionDefault: 8,
   rightMotorSpeedDefault: 255,
   rightMotorSpeedStepDefault: 5,
+  rightMotorSpeedLimitDefault: { min: 0, max: 255 },
   leftMotorPwmResolutionDefault: 8,
   leftMotorSpeedDefault: 255,
   leftMotorSpeedStepDefault: 5,
+  leftMotorSpeedLimitDefault: { min: 0, max: 255 },
   armsAre360Default: [true, false, false, false, true, false],
+  armDirectionReversedDefault: [true, true, false, false, false, false],
   armValuesDefault: [
     { deg180: 90, deg360: 30 },
     { deg180: 90, deg360: 30 },
@@ -190,10 +215,18 @@ export const defaultSettings: AppSettings = {
     { min: 0, max: 180 },
     { min: 0, max: 180 },
   ],
+  armSpeedLimitsDefault: [
+    { min: 0, max: 90 },
+    { min: 0, max: 90 },
+    { min: 0, max: 90 },
+    { min: 0, max: 90 },
+    { min: 0, max: 90 },
+    { min: 0, max: 90 },
+  ],
   armValuesStepDefault: 5,
   ziplineAnglesDefault: {
     front: { open: 90, close: 0 },
-    back: { open: 90, close: 180 },
+    back: { open: 90, close: 0 },
   },
 };
 
@@ -223,15 +256,20 @@ export const useSettingsStore = create<SettingsStore>()(
         motorPwmResolutionDefault,
         motorSpeedDefault,
         motorSpeedStepDefault,
+        motorSpeedLimitDefault,
         rightMotorPwmResolutionDefault,
         rightMotorSpeedDefault,
         rightMotorSpeedStepDefault,
+        rightMotorSpeedLimitDefault,
         leftMotorPwmResolutionDefault,
         leftMotorSpeedDefault,
         leftMotorSpeedStepDefault,
+        leftMotorSpeedLimitDefault,
         armsAre360Default,
+        armDirectionReversedDefault,
         armValuesDefault,
         armAngleLimitsDefault,
+        armSpeedLimitsDefault,
         armValuesStepDefault,
         ziplineAnglesDefault,
       }) => ({
@@ -241,21 +279,28 @@ export const useSettingsStore = create<SettingsStore>()(
         motorPwmResolutionDefault,
         motorSpeedDefault,
         motorSpeedStepDefault,
+        motorSpeedLimitDefault,
         rightMotorPwmResolutionDefault,
         rightMotorSpeedDefault,
         rightMotorSpeedStepDefault,
+        rightMotorSpeedLimitDefault,
         leftMotorPwmResolutionDefault,
         leftMotorSpeedDefault,
         leftMotorSpeedStepDefault,
+        leftMotorSpeedLimitDefault,
         armsAre360Default,
+        armDirectionReversedDefault,
         armValuesDefault,
         armAngleLimitsDefault,
+        armSpeedLimitsDefault,
         armValuesStepDefault,
         ziplineAnglesDefault,
       }),
-      version: 1,
+      version: 2,
       // v0 -> v1: armValuesDefault eskiden number[] idi, artık { deg180, deg360 }[].
       // Eski tekil değer kolun o anki moduna yazılır (360° -> deg360, 180° -> deg180).
+      // v1 -> v2: hız min/max sınırları eklendi (360° servo + motor ortak/sağ/sol).
+      // Eski kayıtta yoksa varsayılana çekilir; motor max'ı mevcut çözünürlükten türetilir.
       migrate: (persisted: any) => {
         if (
           persisted &&
@@ -267,6 +312,16 @@ export const useSettingsStore = create<SettingsStore>()(
               ? { deg180: 90, deg360: n }
               : { deg180: n, deg360: 30 },
           );
+        }
+        if (persisted) {
+          if (!Array.isArray(persisted.armSpeedLimitsDefault)) {
+            persisted.armSpeedLimitsDefault = defaultSettings.armSpeedLimitsDefault.map((l) => ({ ...l }));
+          }
+          const motorLimit = (resKey: string) =>
+            ({ min: 0, max: pwmMaxFromResolution(Number(persisted[resKey]) || 0) });
+          if (!persisted.motorSpeedLimitDefault) persisted.motorSpeedLimitDefault = motorLimit('motorPwmResolutionDefault');
+          if (!persisted.rightMotorSpeedLimitDefault) persisted.rightMotorSpeedLimitDefault = motorLimit('rightMotorPwmResolutionDefault');
+          if (!persisted.leftMotorSpeedLimitDefault) persisted.leftMotorSpeedLimitDefault = motorLimit('leftMotorPwmResolutionDefault');
         }
         return persisted;
       },

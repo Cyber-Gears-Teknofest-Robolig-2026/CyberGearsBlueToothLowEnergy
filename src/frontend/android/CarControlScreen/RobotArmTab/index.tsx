@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
   ScrollView,
   Text,
@@ -10,7 +10,8 @@ import {
 import { Entypo, MaterialIcons } from '@expo/vector-icons';
 import CustomSlider from '../../CustomComponents/CustomSlider';
 import HoldButton from '../../CustomComponents/HoldButton';
-import styles from './styles';
+import { makeStyles } from './styles';
+import { useThemeColors } from '../../theme';
 import {
   useBluetoothStore,
   useSettingsStore,
@@ -20,8 +21,9 @@ const ARM_MIN = 0;
 const ARM_MAX = 180;
 
 // 180° servolarda +/- butonu basılı tutulurken değerin tekrar tekrar
-// değişme (sağa/sola döndürme) hızı.
-const HOLD_REPEAT_MS = 120;
+// değişme (sağa/sola döndürme) hızı. BLE backend artık yüksek bağlantı önceliği
+// + write-without-response kullandığından bu aralık güvenle düşürülebilir.
+const HOLD_REPEAT_MS = 50;
 
 const ARM_COLORS = [
   '#6366F1',
@@ -42,6 +44,8 @@ const clamp = (value: number, min: number, max: number) => {
 
 export default function RobotArmTab() {
 
+  const colors = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const connectedDevice = useBluetoothStore((state) => state.connectedDevice);
 
   const sendValuesHeaders = useSettingsStore((state) => state.sendValuesHeaders);
@@ -49,28 +53,37 @@ export default function RobotArmTab() {
   const armsAre360Default = useSettingsStore((state) => state.armsAre360Default);
   const ARM_DEFAULT_VALUES = useSettingsStore((state) => state.armValuesDefault);
   const ARM_ANGLE_LIMITS = useSettingsStore((state) => state.armAngleLimitsDefault);
+  const ARM_SPEED_LIMITS = useSettingsStore((state) => state.armSpeedLimitsDefault);
   const ARM_STEP = useSettingsStore((state) => state.armValuesStepDefault);
+  const armDirReversed = useSettingsStore((state) => state.armDirectionReversedDefault);
+
+  // Açı yönü ters ayarı (kol başına): 180° → gönderilen açı 180-açı; 360° → işaret tersine.
+  const wire180 = (angle: number, i: number) => (armDirReversed[i] ? 180 - angle : angle);
+  const wire360 = (signed: number, i: number) => (armDirReversed[i] ? -signed : signed);
 
   const { height } = useWindowDimensions();
 
   const [robotScrollHeight, setRobotScrollHeight] = useState(0);
 
-  // Bir kolun değer aralığı: 360° modunda hız 0–90, 180° modunda kullanıcı ayarındaki
-  // min/max açı (sıralı, ters girilirse de bozulmaz).
+  // Bir kolun değer aralığı: 360° modunda kullanıcı ayarındaki min/max hız (0–90),
+  // 180° modunda kullanıcı ayarındaki min/max açı (sıralı, ters girilirse de bozulmaz).
   const armBounds = (index: number, is360: boolean) =>
     is360
-      ? { lo: 0, hi: 90 }
+      ? {
+          lo: Math.min(ARM_SPEED_LIMITS[index].min, ARM_SPEED_LIMITS[index].max),
+          hi: Math.max(ARM_SPEED_LIMITS[index].min, ARM_SPEED_LIMITS[index].max),
+        }
       : {
           lo: Math.min(ARM_ANGLE_LIMITS[index].min, ARM_ANGLE_LIMITS[index].max),
           hi: Math.max(ARM_ANGLE_LIMITS[index].min, ARM_ANGLE_LIMITS[index].max),
         };
 
   // Her kolun başlangıç değeri, o kolun moduna (180°/360°) ait varsayılandan gelir
-  // ve 180° modunda açı sınırına kıstırılır.
+  // ve o modun [min, max] sınırına kıstırılır.
   const initialArmValues = ARM_DEFAULT_VALUES.map((v, i) => {
-    if (armsAre360Default[i]) return v.deg360;
-    const { lo, hi } = armBounds(i, false);
-    return clamp(v.deg180, lo, hi);
+    const is360 = armsAre360Default[i];
+    const { lo, hi } = armBounds(i, is360);
+    return clamp(is360 ? v.deg360 : v.deg180, lo, hi);
   });
 
   const [armValues, setArmValues] = useState<number[]>([...initialArmValues]);
@@ -105,23 +118,19 @@ export default function RobotArmTab() {
 
     if (!allSendsValues.robot_arms) {
       if (!armIs360[index]) {
-        await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${angleValue}\r\n`);
+        await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${wire180(angleValue, index)}\r\n`);
       }
     }
 
     else {
+      // 180° slider'ı oynatınca toplu gönder: 360° servolar her zaman 0 (dursun),
+      // oynatılan 180° kolu yeni değerini, diğer 180° kollar mevcut değerini alır.
       const arm_values_new = armValues.map((value, index_) => {
-        if (!armIs360[index]) {
-          if (index != index_) {
-            return value;
-          }
-          else {
-            return angleValue;
-          }
+        if (armIs360[index_]) {
+          return 0;
         }
-        else {
-          return 90;
-        }
+        const a = index_ === index ? angleValue : value;
+        return wire180(a, index_);
       })
       if (!armIs360[index]) {
         await connectedDevice?.write(`${sendValuesHeaders.robot_arm.all_robot_arms}:${arm_values_new.join(",")}\r\n`);
@@ -136,25 +145,25 @@ export default function RobotArmTab() {
       const key: keyof typeof sendValuesHeaders.robot_arm = `robot_arm_${index}` as keyof typeof sendValuesHeaders.robot_arm;
       switch (direction) {
         case "right":
-          await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${speedValue}\r\n`);
+          await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${wire360(speedValue, index)}\r\n`);
           break;
         case "left":
-          await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${-speedValue}\r\n`);
+          await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${wire360(-speedValue, index)}\r\n`);
           break;
       }
     }
     else {
       const arm_values_new = armValues.map((value, index_) => {
         if (!armIs360[index_]) {
-          return value;
+          return wire180(value, index_);
         }
         else {
           if (index_ == index) {
             switch (direction) {
               case "right":
-                return speedValue;
+                return wire360(speedValue, index_);
               case "left":
-                return -speedValue;
+                return wire360(-speedValue, index_);
             }
           }
           else {
@@ -175,7 +184,7 @@ export default function RobotArmTab() {
     else {
       const arm_values_new = armValues.map((value, index) => {
         if (!armIs360[index]) {
-          return value;
+          return wire180(value, index);
         }
         else {
           return 0;
@@ -382,12 +391,12 @@ export default function RobotArmTab() {
               <Entypo name="arrow-left" size={18} color="#FFFFFF" />
             </HoldButton>
 
-            {/* Yeni Hız Ayarı Slider'ı (0-90 arası) */}
+            {/* Hız Ayarı Slider'ı (ayardaki min–max aralığında) */}
             <View style={styles.armHSliderBox}>
               <CustomSlider
                 value={value}
-                minimumValue={0}
-                maximumValue={90}
+                minimumValue={lo}
+                maximumValue={hi}
                 step={1}
                 onValueChange={(val: number) => handleArmChange(index, val)}
                 trackThickness={7}

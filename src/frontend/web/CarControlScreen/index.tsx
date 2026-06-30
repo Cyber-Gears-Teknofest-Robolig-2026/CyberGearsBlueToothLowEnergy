@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import {
   Text,
@@ -13,15 +13,14 @@ import { MaterialIcons } from '@expo/vector-icons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Entypo } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import styles from './styles';
+import { makeStyles } from './styles';
+import { useThemeColors, useEffectiveTheme } from '../theme';
 import CustomSlider from '../CustomComponents/CustomSlider';
 import HoldButton from '../CustomComponents/HoldButton';
 import ToggleSwitch from '../CustomComponents/ToggleSwitch';
-import { AppNavigationProp, pwmMaxFromResolution, useBluetoothStore, useSettingsStore } from '../constants';
+import { AppNavigationProp, useBluetoothStore, useSettingsStore } from '../constants';
 
 // --- RCCarTab component (migrated) ---
-const PWM_MIN = 0;
-
 const getSliderValue = (value: number | number[]) => {
   return Array.isArray(value) ? value[0] : value;
 };
@@ -31,6 +30,8 @@ const clamp = (value: number, min: number, max: number) => {
 };
 
 function RCCarTab({ disableScroll = false }: { disableScroll?: boolean }) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const connectedDevice = useBluetoothStore((state) => state.connectedDevice);
   const sendValuesHeaders = useSettingsStore((state) => state.sendValuesHeaders);
   const allSendsValues = useSettingsStore((state) => state.allSendsValues);
@@ -44,9 +45,11 @@ function RCCarTab({ disableScroll = false }: { disableScroll?: boolean }) {
   const LEFT_PWM_STEP = useSettingsStore((state) => state.leftMotorSpeedStepDefault);
 
   // Her hız kontrolünün PWM üst sınırı kendi çözünürlüğünden türetilir: 2^res - 1 (8 bit -> 255).
-  const COMMON_PWM_MAX = pwmMaxFromResolution(useSettingsStore((state) => state.motorPwmResolutionDefault));
-  const RIGHT_PWM_MAX = pwmMaxFromResolution(useSettingsStore((state) => state.rightMotorPwmResolutionDefault));
-  const LEFT_PWM_MAX = pwmMaxFromResolution(useSettingsStore((state) => state.leftMotorPwmResolutionDefault));
+  // Kullanıcı hız sınırı (min/max): slider izi ve değer bununla kısıtlanır. Üst sınır,
+  // ayarlarda kaydedilirken zaten kanalın PWM çözünürlüğüne (2^res-1) göre kıstırılmıştır.
+  const COMMON_SPEED_LIMIT = useSettingsStore((state) => state.motorSpeedLimitDefault);
+  const RIGHT_SPEED_LIMIT = useSettingsStore((state) => state.rightMotorSpeedLimitDefault);
+  const LEFT_SPEED_LIMIT = useSettingsStore((state) => state.leftMotorSpeedLimitDefault);
 
   const [ziplineOpen, setZiplineOpen] = useState(false);
   const [vehicleScrollHeight, setVehicleScrollHeight] = useState(0);
@@ -54,12 +57,17 @@ function RCCarTab({ disableScroll = false }: { disableScroll?: boolean }) {
   // Ortak (false) veya ayrı ayrı (true) hız kontrolü. Varsayılan ayarlardan gelir.
   const [separateMode, setSeparateMode] = useState(SEPARATE_DEFAULT);
 
-  const [speed, setSpeed] = useState(SPEED_DEFAULT);
-  const [speedInput, setSpeedInput] = useState(SPEED_DEFAULT.toString());
-  const [rightSpeed, setRightSpeed] = useState(RIGHT_SPEED_DEFAULT);
-  const [rightSpeedInput, setRightSpeedInput] = useState(RIGHT_SPEED_DEFAULT.toString());
-  const [leftSpeed, setLeftSpeed] = useState(LEFT_SPEED_DEFAULT);
-  const [leftSpeedInput, setLeftSpeedInput] = useState(LEFT_SPEED_DEFAULT.toString());
+  // Başlangıç değerini kendi [min, max] hız aralığına kıstır.
+  const initCommon = clamp(SPEED_DEFAULT, COMMON_SPEED_LIMIT.min, COMMON_SPEED_LIMIT.max);
+  const initRight = clamp(RIGHT_SPEED_DEFAULT, RIGHT_SPEED_LIMIT.min, RIGHT_SPEED_LIMIT.max);
+  const initLeft = clamp(LEFT_SPEED_DEFAULT, LEFT_SPEED_LIMIT.min, LEFT_SPEED_LIMIT.max);
+
+  const [speed, setSpeed] = useState(initCommon);
+  const [speedInput, setSpeedInput] = useState(initCommon.toString());
+  const [rightSpeed, setRightSpeed] = useState(initRight);
+  const [rightSpeedInput, setRightSpeedInput] = useState(initRight.toString());
+  const [leftSpeed, setLeftSpeed] = useState(initLeft);
+  const [leftSpeedInput, setLeftSpeedInput] = useState(initLeft.toString());
 
   const handleDirection = async (direction: string) => {
     // Moda göre her motorun hızı: ortakta ikisi de `speed`, ayrıda sağ/sol bağımsız.
@@ -115,22 +123,25 @@ function RCCarTab({ disableScroll = false }: { disableScroll?: boolean }) {
   };
 
   // Tek bir hız kontrolünün (slider + −/+ + sayı girişi) tüm davranışlarını üretir.
+  // Değer kullanıcı ayarındaki [min, max] hız aralığına kıstırılır.
   const makeSpeedControl = (
     value: number,
     input: string,
     setValue: (n: number) => void,
     setInput: (s: string) => void,
     step: number,
+    min: number,
     max: number,
   ) => {
     const apply = (rawValue: number | number[]) => {
-      const pwmValue = clamp(getSliderValue(rawValue), PWM_MIN, max);
+      const pwmValue = clamp(getSliderValue(rawValue), min, max);
       setValue(pwmValue);
       setInput(pwmValue.toString());
     };
     return {
       value,
       input,
+      min,
       max,
       apply,
       increment: () => apply(value + step),
@@ -140,15 +151,15 @@ function RCCarTab({ disableScroll = false }: { disableScroll?: boolean }) {
         setInput(onlyNumbers);
         if (onlyNumbers === '') return;
         const numValue = Number(onlyNumbers);
-        if (!Number.isNaN(numValue)) setValue(clamp(numValue, PWM_MIN, max));
+        if (!Number.isNaN(numValue)) setValue(clamp(numValue, min, max));
       },
       normalize: () => apply(input === '' ? value : Number(input)),
     };
   };
 
-  const commonSpeed = makeSpeedControl(speed, speedInput, setSpeed, setSpeedInput, PWM_STEP, COMMON_PWM_MAX);
-  const rightSpeedCtrl = makeSpeedControl(rightSpeed, rightSpeedInput, setRightSpeed, setRightSpeedInput, RIGHT_PWM_STEP, RIGHT_PWM_MAX);
-  const leftSpeedCtrl = makeSpeedControl(leftSpeed, leftSpeedInput, setLeftSpeed, setLeftSpeedInput, LEFT_PWM_STEP, LEFT_PWM_MAX);
+  const commonSpeed = makeSpeedControl(speed, speedInput, setSpeed, setSpeedInput, PWM_STEP, COMMON_SPEED_LIMIT.min, COMMON_SPEED_LIMIT.max);
+  const rightSpeedCtrl = makeSpeedControl(rightSpeed, rightSpeedInput, setRightSpeed, setRightSpeedInput, RIGHT_PWM_STEP, RIGHT_SPEED_LIMIT.min, RIGHT_SPEED_LIMIT.max);
+  const leftSpeedCtrl = makeSpeedControl(leftSpeed, leftSpeedInput, setLeftSpeed, setLeftSpeedInput, LEFT_PWM_STEP, LEFT_SPEED_LIMIT.min, LEFT_SPEED_LIMIT.max);
 
   const renderSpeedRow = (ctrl: ReturnType<typeof makeSpeedControl>, fillColor: string) => {
     const inputMaxLen = String(ctrl.max).length;
@@ -158,7 +169,7 @@ function RCCarTab({ disableScroll = false }: { disableScroll?: boolean }) {
       <View style={styles.speedControlRow}>
         <HoldButton style={[styles.roundControlButton, { backgroundColor: fillColor }]} onPressIn={ctrl.decrement}><Entypo name="minus" size={20} color="#FFFFFF" /></HoldButton>
         <View style={styles.speedSliderBox}>
-          <CustomSlider value={ctrl.value} minimumValue={PWM_MIN} maximumValue={ctrl.max} step={1} onValueChange={ctrl.apply} trackThickness={8} thumbSize={22} trackColor="#D7E0EA" fillColor={fillColor} thumbColor={fillColor} />
+          <CustomSlider value={ctrl.value} minimumValue={ctrl.min} maximumValue={ctrl.max} step={1} onValueChange={ctrl.apply} trackThickness={8} thumbSize={22} trackColor="#D7E0EA" fillColor={fillColor} thumbColor={fillColor} />
         </View>
         <HoldButton style={[styles.roundControlButton, { backgroundColor: fillColor }]} onPressIn={ctrl.increment}><Entypo name="plus" size={20} color="#FFFFFF" /></HoldButton>
         <View style={[styles.speedInputBox, { width: inputBoxWidth }]}><TextInput style={styles.speedInput} value={ctrl.input} onChangeText={ctrl.onInput} onBlur={ctrl.normalize} keyboardType="numeric" maxLength={inputMaxLen} selectTextOnFocus /></View>
@@ -255,9 +266,9 @@ function RCCarTab({ disableScroll = false }: { disableScroll?: boolean }) {
 
         {separateMode ? (
           <>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginTop: 10, marginBottom: 6 }}>Sağ Motor</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textSecondary, marginTop: 10, marginBottom: 6 }}>Sağ Motor</Text>
             {renderSpeedRow(rightSpeedCtrl, '#F59E0B')}
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#475569', marginTop: 14, marginBottom: 6 }}>Sol Motor</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textSecondary, marginTop: 14, marginBottom: 6 }}>Sol Motor</Text>
             {renderSpeedRow(leftSpeedCtrl, '#22C55E')}
           </>
         ) : (
@@ -281,37 +292,73 @@ function RCCarTab({ disableScroll = false }: { disableScroll?: boolean }) {
 // --- RobotArmTab component (migrated) ---
 const ARM_MIN = 0;
 const ARM_MAX = 180;
-const HOLD_REPEAT_MS = 120;
+const HOLD_REPEAT_MS = 50;
 const ARM_COLORS = ['#6366F1','#0EA5E9','#14B8A6','#22C55E','#F59E0B','#EF4444'];
 
 function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const connectedDevice = useBluetoothStore((state) => state.connectedDevice);
   const sendValuesHeaders = useSettingsStore((state) => state.sendValuesHeaders);
   const allSendsValues = useSettingsStore((state) => state.allSendsValues);
   const armsAre360Default = useSettingsStore((state) => state.armsAre360Default);
   const ARM_DEFAULT_VALUES = useSettingsStore((state) => state.armValuesDefault);
   const ARM_ANGLE_LIMITS = useSettingsStore((state) => state.armAngleLimitsDefault);
+  const ARM_SPEED_LIMITS = useSettingsStore((state) => state.armSpeedLimitsDefault);
   const ARM_STEP = useSettingsStore((state) => state.armValuesStepDefault);
+  const armDirReversed = useSettingsStore((state) => state.armDirectionReversedDefault);
   const { height } = useWindowDimensions();
 
+  // Açı yönü ters ayarı (kol başına): 180° → gönderilen açı 180-açı; 360° → işaret tersine.
+  const wire180 = (angle: number, i: number) => (armDirReversed[i] ? 180 - angle : angle);
+  const wire360 = (signed: number, i: number) => (armDirReversed[i] ? -signed : signed);
+
   const [robotScrollHeight, setRobotScrollHeight] = useState(0);
-  // Bir kolun değer aralığı: 360° -> hız 0–90, 180° -> ayardaki min/max açı (sıralı).
+  // Bir kolun değer aralığı: 360° -> ayardaki min/max hız (0–90), 180° -> ayardaki min/max açı (sıralı).
   const armBounds = (index: number, is360: boolean) =>
     is360
-      ? { lo: 0, hi: 90 }
+      ? {
+          lo: Math.min(ARM_SPEED_LIMITS[index].min, ARM_SPEED_LIMITS[index].max),
+          hi: Math.max(ARM_SPEED_LIMITS[index].min, ARM_SPEED_LIMITS[index].max),
+        }
       : {
           lo: Math.min(ARM_ANGLE_LIMITS[index].min, ARM_ANGLE_LIMITS[index].max),
           hi: Math.max(ARM_ANGLE_LIMITS[index].min, ARM_ANGLE_LIMITS[index].max),
         };
-  // Her kolun başlangıç değeri, o kolun moduna ait varsayılandan gelir (180° için sınıra kıstırılır).
+  // Her kolun başlangıç değeri, o kolun moduna ait varsayılandan gelir (o modun sınırına kıstırılır).
   const initialArmValues = ARM_DEFAULT_VALUES.map((v, i) => {
-    if (armsAre360Default[i]) return v.deg360;
-    const { lo, hi } = armBounds(i, false);
-    return clamp(v.deg180, lo, hi);
+    const is360 = armsAre360Default[i];
+    const { lo, hi } = armBounds(i, is360);
+    return clamp(is360 ? v.deg360 : v.deg180, lo, hi);
   });
   const [armValues, setArmValues] = useState<number[]>([...initialArmValues]);
   const [armIs360, setArmIs360] = useState<boolean[]>([...armsAre360Default]);
   const [armInputs, setArmInputs] = useState<string[]>(initialArmValues.map(String));
+
+  // Web'de Web Bluetooth aynı anda yalnızca tek GATT işlemine izin verir; slider'ı
+  // sürüklerken her hareketi ayrı write olarak kuyruğa atınca backlog oluşur ve
+  // hareket parmaktan kopuk/gecikmeli iletilir. Coalescing: bir write uçarken
+  // gelen değerler "pending"i ezer, write bitince yalnızca EN SON değer gönderilir.
+  // Böylece kuyruk birikmez → slider akıcı kalır, cihaz son konumu ~tek write
+  // gecikmeyle alır. (Android'de gerek yok; orada tek-işlem kısıtı yoktur.)
+  const pendingArmPayloadRef = useRef<string | null>(null);
+  const armWritingRef = useRef(false);
+  const sendArmLatest = (payload: string) => {
+    pendingArmPayloadRef.current = payload;
+    if (armWritingRef.current) return;
+    armWritingRef.current = true;
+    (async () => {
+      try {
+        while (pendingArmPayloadRef.current != null) {
+          const next = pendingArmPayloadRef.current;
+          pendingArmPayloadRef.current = null;
+          await connectedDevice?.write(next);
+        }
+      } finally {
+        armWritingRef.current = false;
+      }
+    })();
+  };
 
   const handleArmChange = async (index: number, rawValue: number | number[]) => {
     const value = getSliderValue(rawValue);
@@ -327,10 +374,10 @@ function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
     }
     if (!armIs360[index]) {
       if (!allSendsValues.robot_arms) {
-        await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${angleValue}\r\n`);
+        sendArmLatest(`${sendValuesHeaders.robot_arm[key]}:${wire180(angleValue, index)}\r\n`);
       } else {
-        const arm_values_new = armValues.map((value, index_) => { if (!armIs360[index]) { if (index != index_) { return value; } else { return angleValue; } } else { return 90; } });
-        if (!armIs360[index]) await connectedDevice?.write(`${sendValuesHeaders.robot_arm.all_robot_arms}:${arm_values_new.join(',')}\r\n`);
+        const arm_values_new = armValues.map((value, index_) => { if (armIs360[index_]) return 0; const a = index_ === index ? angleValue : value; return wire180(a, index_); });
+        if (!armIs360[index]) sendArmLatest(`${sendValuesHeaders.robot_arm.all_robot_arms}:${arm_values_new.join(',')}\r\n`);
       }
     }
   };
@@ -340,14 +387,14 @@ function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
     console.log(`Arm ${index} (360) Rotating ${direction} at speed:`, speedValue);
     if (!allSendsValues.robot_arms) {
       const key: keyof typeof sendValuesHeaders.robot_arm = `robot_arm_${index}` as keyof typeof sendValuesHeaders.robot_arm;
-      switch(direction){case 'right': await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${speedValue}\r\n`); break; case 'left': await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${-speedValue}\r\n`); break}
+      switch(direction){case 'right': await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${wire360(speedValue, index)}\r\n`); break; case 'left': await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${wire360(-speedValue, index)}\r\n`); break}
     } else {
-      const arm_values_new = armValues.map((value, index_) => { if (!armIs360[index_]) return value; else { if (index_==index){ switch(direction){case 'right': return speedValue; case 'left': return -speedValue;} } else return 0; } });
+      const arm_values_new = armValues.map((value, index_) => { if (!armIs360[index_]) return wire180(value, index_); else { if (index_==index){ switch(direction){case 'right': return wire360(speedValue, index_); case 'left': return wire360(-speedValue, index_);} } else return 0; } });
       await connectedDevice?.write(`${sendValuesHeaders.robot_arm.all_robot_arms}:${arm_values_new.join(',')}\r\n`);
     }
   };
 
-  const handle360RotationStop = async (index:number)=>{ console.log(`Arm ${index + 1} (360) Stop`); if(!allSendsValues.robot_arms){ const key: keyof typeof sendValuesHeaders.robot_arm = `robot_arm_${index}` as keyof typeof sendValuesHeaders.robot_arm; await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${0}\r\n`);} else { const arm_values_new = armValues.map((value, idx)=> !armIs360[idx]? value:0); await connectedDevice?.write(`${sendValuesHeaders.robot_arm.all_robot_arms}:${arm_values_new.join(',')}\r\n`); } };
+  const handle360RotationStop = async (index:number)=>{ console.log(`Arm ${index + 1} (360) Stop`); if(!allSendsValues.robot_arms){ const key: keyof typeof sendValuesHeaders.robot_arm = `robot_arm_${index}` as keyof typeof sendValuesHeaders.robot_arm; await connectedDevice?.write(`${sendValuesHeaders.robot_arm[key]}:${0}\r\n`);} else { const arm_values_new = armValues.map((value, idx)=> !armIs360[idx]? wire180(value, idx):0); await connectedDevice?.write(`${sendValuesHeaders.robot_arm.all_robot_arms}:${arm_values_new.join(',')}\r\n`); } };
 
   const resetArm = (index:number)=>{ const def = armIs360[index] ? ARM_DEFAULT_VALUES[index].deg360 : ARM_DEFAULT_VALUES[index].deg180; console.log(`Arm ${index + 1} reset to default:`, def); handleArmChange(index, def); };
   const incrementArm = (index:number)=>handleArmChange(index, armValues[index]+ARM_STEP);
@@ -384,7 +431,7 @@ function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
       <View style={styles.armHTitleBox}><Text style={[styles.armTitle,{color}]}>R{index}</Text></View>
       {is360Servo?(<>
         <HoldButton style={[styles.armButton, styles.armButtonHorizontal, { backgroundColor: color }]} activeOpacity={0.8} onPressIn={()=>handle360Rotation(index,'left')} onPressOut={()=>handle360RotationStop(index)}><Entypo name="arrow-left" size={18} color="#FFFFFF"/></HoldButton>
-        <View style={styles.armHSliderBox}><CustomSlider value={value} minimumValue={0} maximumValue={90} step={1} onValueChange={(val:number)=>handleArmChange(index,val)} trackThickness={7} thumbSize={20} trackColor="#D7E0EA" fillColor={color} thumbColor={color}/></View>
+        <View style={styles.armHSliderBox}><CustomSlider value={value} minimumValue={lo} maximumValue={hi} step={1} onValueChange={(val:number)=>handleArmChange(index,val)} trackThickness={7} thumbSize={20} trackColor="#D7E0EA" fillColor={color} thumbColor={color}/></View>
         <HoldButton style={[styles.armButton, styles.armButtonHorizontal, { backgroundColor: color }]} activeOpacity={0.8} onPressIn={()=>handle360Rotation(index,'right')} onPressOut={()=>handle360RotationStop(index)}><Entypo name="arrow-right" size={18} color="#FFFFFF"/></HoldButton>
       </>):(<>
         <HoldButton style={[styles.armButton, styles.armButtonHorizontal, { backgroundColor: color }]} activeOpacity={0.8} onPressIn={()=>startArmHold(index,-1)} onPressOut={stopArmHold}><Entypo name="minus" size={18} color="#FFFFFF"/></HoldButton>
@@ -412,6 +459,9 @@ function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
   const navigation = useNavigation<AppNavigationProp>();
   const layout = useWindowDimensions();
 
+  const colors = useThemeColors();
+  const effectiveTheme = useEffectiveTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const connectedDevice = useBluetoothStore((state) => state.connectedDevice);
   const setConnectedDevice = useBluetoothStore((state) => state.setConnectedDevice);
   const setMessages = useBluetoothStore((state) => state.setMessages);
@@ -467,12 +517,12 @@ function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-        <StatusBar style="dark" />
+        <StatusBar style={effectiveTheme === 'dark' ? 'light' : 'dark'} />
 
         <View style={styles.container}>
           <View style={styles.headerWithBack}>
             <TouchableOpacity onPress={handleBackPress} style={styles.backBtn}>
-              <MaterialCommunityIcons name="arrow-left" size={22} color="#111827" />
+              <MaterialCommunityIcons name="arrow-left" size={22} color={colors.textPrimary} />
             </TouchableOpacity>
 
             <View style={styles.headerCenter}>
@@ -503,21 +553,21 @@ function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
                 onPress={handleHomePress}
                 style={styles.homeBtn}
               >
-                <MaterialCommunityIcons name="home" size={22} color="#111827" />
+                <MaterialCommunityIcons name="home" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={handleSettingsPress}
                 style={styles.homeBtn}
               >
-                <MaterialCommunityIcons name="cog" size={22} color="#111827" />
+                <MaterialCommunityIcons name="cog" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={handleDefaultsPress}
                 style={styles.homeBtn}
               >
-                <MaterialCommunityIcons name="tune-variant" size={22} color="#111827" />
+                <MaterialCommunityIcons name="tune-variant" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
 
               {connectedDevice ? (

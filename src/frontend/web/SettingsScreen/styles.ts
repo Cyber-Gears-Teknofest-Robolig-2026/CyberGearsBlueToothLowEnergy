@@ -1,4 +1,5 @@
 import { StyleSheet } from "react-native";
+import { makeThemedStyles, type ThemeColors } from "../theme";
 
 const styles = StyleSheet.create({
   container: {
@@ -36,7 +37,7 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     fontSize: 13,
     color: "#64748B",
-    fontWeight: "500",
+    fontWeight: "600",
     marginTop: 2,
   },
 
@@ -94,11 +95,49 @@ const styles = StyleSheet.create({
     gap: 12,
   },
 
+  // İki anahtarı (360° Servo / Açı Yönü Ters) aynı satırda yan yana göstermek için.
+  // Dar ekranda (Android) sığmazsa alt satıra kaydırır (flexWrap).
+  switchPairRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    columnGap: 28,
+    rowGap: 0,
+  },
+
+  // Tam genişlikli switch'te durum etiketi + toggle'ın sağ grubu.
+  switchRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  // Switch'in değerine göre değişen durum yazısı (renk inline veriliyor).
+  switchStateText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  // Sıkı (yan yana) switch: etiket + durum + toggle bitişik dursun.
+  switchCompact: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 7,
+  },
+
+  switchCompactLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#334155",
+  },
+
   rowLabel: {
     flex: 1,
     fontSize: 14,
     color: "#334155",
-    fontWeight: "600",
+    fontWeight: "700",
   },
 
   textInput: {
@@ -226,4 +265,5 @@ const styles = StyleSheet.create({
   },
 });
 
+export const makeStyles = (c: ThemeColors) => makeThemedStyles(styles, c);
 export default styles;

@@ -1,5 +1,6 @@
 
 import { StyleSheet } from "react-native";
+import { makeThemedStyles, type ThemeColors } from "../theme";
 
 const styles = StyleSheet.create({
   container: { 
@@ -418,4 +419,5 @@ const styles = StyleSheet.create({
 
 });
 
+export const makeStyles = (c: ThemeColors) => makeThemedStyles(styles, c);
 export default styles;

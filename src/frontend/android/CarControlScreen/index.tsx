@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Alert,
   Text,
@@ -17,7 +17,8 @@ import { TabView, SceneMap } from 'react-native-tab-view';
 // Sadece bu ekranda gesture kökü (zipline butonu için). App kökünü değiştirmiyoruz
 // ki diğer ekranların safe area'sı etkilenmesin.
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import styles from './styles';
+import { makeStyles } from './styles';
+import { useThemeColors, useEffectiveTheme } from '../theme';
 import RCCarTab from './RCCarTab';
 import RobotArmTab from './RobotArmTab';
 import { AppNavigationProp, useBluetoothStore } from '../constants';
@@ -37,6 +38,9 @@ export default function CarControlScreen() {
 
   const navigation = useNavigation<AppNavigationProp>();
   const layout = useWindowDimensions();
+  const colors = useThemeColors();
+  const effectiveTheme = useEffectiveTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const connectedDevice = useBluetoothStore((state) => state.connectedDevice);
   const setConnectedDevice = useBluetoothStore((state) => state.setConnectedDevice);
@@ -125,7 +129,7 @@ export default function CarControlScreen() {
         <MaterialIcons
           name="directions-car"
           size={22}
-          color={index === 0 ? '#FFFFFF' : '#6B7280'}
+          color={index === 0 ? '#FFFFFF' : colors.textSecondary}
         />
         <Text style={[styles.tabText, index === 0 && styles.activeTabText]}>
           {TAB_ROUTES[0].title}
@@ -140,7 +144,7 @@ export default function CarControlScreen() {
         <MaterialIcons
           name="precision-manufacturing"
           size={22}
-          color={index === 1 ? '#FFFFFF' : '#6B7280'}
+          color={index === 1 ? '#FFFFFF' : colors.textSecondary}
         />
         <Text style={[styles.tabText, index === 1 && styles.activeTabText]}>
           {TAB_ROUTES[1].title}
@@ -152,13 +156,13 @@ export default function CarControlScreen() {
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right', 'bottom']}>
-        <StatusBar style="dark" />
+        <StatusBar style={effectiveTheme === 'dark' ? 'light' : 'dark'} />
 
         <GestureHandlerRootView style={{ flex: 1 }}>
         <View style={styles.container}>
           <View style={styles.headerWithBack}>
             <TouchableOpacity onPress={handleBackPress} style={styles.backBtn}>
-              <MaterialCommunityIcons name="arrow-left" size={22} color="#111827" />
+              <MaterialCommunityIcons name="arrow-left" size={22} color={colors.textPrimary} />
             </TouchableOpacity>
 
             <View style={styles.headerCenter}>
@@ -189,21 +193,21 @@ export default function CarControlScreen() {
                 onPress={handleHomePress}
                 style={styles.homeBtn}
               >
-                <MaterialCommunityIcons name="home" size={22} color="#111827" />
+                <MaterialCommunityIcons name="home" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={handleSettingsPress}
                 style={styles.homeBtn}
               >
-                <MaterialCommunityIcons name="cog" size={22} color="#111827" />
+                <MaterialCommunityIcons name="cog" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={handleDefaultsPress}
                 style={styles.homeBtn}
               >
-                <MaterialCommunityIcons name="tune-variant" size={22} color="#111827" />
+                <MaterialCommunityIcons name="tune-variant" size={22} color={colors.textPrimary} />
               </TouchableOpacity>
 
               {connectedDevice ? (

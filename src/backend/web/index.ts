@@ -99,6 +99,12 @@ export const webBackend: BluetoothApi = {
     };
 
     // Yazma helper (text -> bytes) — GATT kuyruğu üzerinden seri çalışır.
+    // Web'de mutlaka "with response" (writeValue) kullan: peş peşe gönderilen
+    // ayrı komutların (örn. ön + arka zipline) güvenle iletilmesi için her
+    // yazmanın gerçekten tamamlanmasını beklemek gerekir. writeValueWithoutResponse
+    // tarayıcıda akış kontrolü olmadığından ikinci yazmayı düşürebiliyor.
+    // Slider'ın akıcılığı zaten frontend'deki coalescing ile çözülüyor, bu yüzden
+    // burada hıza değil güvenilirliğe öncelik veriyoruz.
     const write = async (data: string) => {
       const encoder = new TextEncoder();
       const bytes = encoder.encode(data);

@@ -212,6 +212,33 @@ export const androidBackend: BluetoothApi = {
     const dev = await manager.connectToDevice(device.id, { timeout: 10000 });
     await dev.discoverAllServicesAndCharacteristics();
 
+    // İletişimi hızlandır (Classic SPP gecikmesine yaklaşmak için). Üçü de
+    // Android'e özgü ve "best effort": desteklenmezse sessizce yoksayılır,
+    // bağlantı yine de çalışır.
+    //   1) Yüksek bağlantı önceliği → connection interval ~7.5–15 ms (varsayılan
+    //      ~30–50 ms). En büyük gecikme kazancı budur.
+    //   2) MTU artışı → daha uzun komutlar tek pakette gider; write-without-
+    //      response'ta truncation'ı önler (varsayılan 23 → faydalı yük 20 bayt).
+    let negotiatedMtu = 23;
+    try {
+      const m = await dev.requestMTU(247);
+      negotiatedMtu = m.mtu ?? 23;
+    } catch { }
+    try {
+      await dev.requestConnectionPriority(1 /* ConnectionPriority.High */);
+    } catch { }
+
+    // RX karakteristiği "write without response" destekliyorsa onu tercih et:
+    // ACK beklemediği için bir bağlantı olayında birden fazla paket gider ve
+    // throughput belirgin artar. Desteklenmiyorsa (veya komut MTU'ya sığmıyorsa)
+    // güvenli yola — onaylı yazma — düşülür.
+    let rxSupportsNoResponse = false;
+    try {
+      const chars = await dev.characteristicsForService(SERVICE_UUID);
+      const rx = chars.find((c) => c.uuid.toLowerCase() === RX_UUID);
+      rxSupportsNoResponse = rx?.isWritableWithoutResponse ?? false;
+    } catch { }
+
     // Cihaz beklenmedik şekilde koparsa kayıtlı dinleyicileri tetikle. Önceki
     // bağlantıdan kalan aboneliği temizleyerek mükerrer bildirimi önle.
     try {
@@ -235,13 +262,25 @@ export const androidBackend: BluetoothApi = {
 
     const write = async (data: string) => {
       const base64 = base64FromUtf8(data);
-      // writeCharacteristicWithResponseForDevice kullanımı; hata durumunda fırlatır
-      await manager.writeCharacteristicWithResponseForDevice(
-        dev.id,
-        SERVICE_UUID,
-        RX_UUID,
-        base64
-      );
+      // Hızlı yol: karakteristik destekliyorsa ve komut MTU'ya sığıyorsa onay
+      // beklemeden gönder. Sığmıyorsa onaylı yazma uzun veriyi otomatik parçalar.
+      const fitsInMtu = Buffer.byteLength(data, "utf-8") <= negotiatedMtu - 3;
+      if (rxSupportsNoResponse && fitsInMtu) {
+        await manager.writeCharacteristicWithoutResponseForDevice(
+          dev.id,
+          SERVICE_UUID,
+          RX_UUID,
+          base64
+        );
+      } else {
+        // Güvenli yol; hata durumunda fırlatır.
+        await manager.writeCharacteristicWithResponseForDevice(
+          dev.id,
+          SERVICE_UUID,
+          RX_UUID,
+          base64
+        );
+      }
     };
 
     const disconnect = async () => {

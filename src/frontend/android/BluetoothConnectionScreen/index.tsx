@@ -14,7 +14,7 @@ import {
   ToastAndroid,
   Pressable,
 } from "react-native";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   useSafeAreaInsets,
@@ -22,7 +22,8 @@ import {
   SafeAreaProvider
 } from "react-native-safe-area-context";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import styles from './styles';
+import { makeStyles } from './styles';
+import { useThemeColors, useEffectiveTheme } from "../theme";
 import { useNavigation } from "@react-navigation/native";
 import {
   AppNavigationProp,
@@ -42,6 +43,9 @@ export default function BluetoothConnectionScreen() {
 
   const navigation = useNavigation<AppNavigationProp>();
   const bluetooth = useBluetooth();
+  const colors = useThemeColors();
+  const effectiveTheme = useEffectiveTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = useWindowDimensions();
   const isLandscape = SCREEN_WIDTH > SCREEN_HEIGHT;
@@ -240,7 +244,7 @@ export default function BluetoothConnectionScreen() {
     const isConnected = connectedDevice?.address === item.address;
     const isPaired = item.bonded;
     const cardStyle = isConnected ? styles.connectedCard : isPaired ? styles.pairedCard : styles.newCard;
-    const iconColor = isConnected ? "#fff" : isPaired ? "#0284C7" : "#64748B";
+    const iconColor = isConnected ? "#fff" : isPaired ? colors.primary : colors.textSecondary;
 
     return (
       <Pressable
@@ -265,25 +269,25 @@ export default function BluetoothConnectionScreen() {
             </View>
           </View>
         </View>
-        <MaterialCommunityIcons name={isConnected ? "link-off" : "chevron-right"} size={24} color={isConnected ? "#EF4444" : isPaired ? "#7DD3FC" : "#CBD5E1"} />
+        <MaterialCommunityIcons name={isConnected ? "link-off" : "chevron-right"} size={24} color={isConnected ? colors.danger : isPaired ? "#7DD3FC" : colors.textMuted} />
       </Pressable>
     );
   };
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+      <StatusBar barStyle={effectiveTheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.background} />
 
       <View style={styles.headerWithBack}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <MaterialCommunityIcons name="arrow-left" size={26} color="#1E293B" />
+          <MaterialCommunityIcons name="arrow-left" size={26} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Bluetooth Yönetimi</Text>
         <TouchableOpacity onPress={() => navigation.reset({
           index: 0,
           routes: [{ name: 'Home' }],
         })} style={styles.homeBtn}>
-          <MaterialCommunityIcons name="home" size={24} color="#1E293B" />
+          <MaterialCommunityIcons name="home" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
       </View>
 
@@ -291,7 +295,7 @@ export default function BluetoothConnectionScreen() {
 
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>
-            <MaterialCommunityIcons name="bluetooth" size={32} color={isConnecting ? "#F59E0B" : connectedDevice ? "#10B981" : "#EF4444"} />
+            <MaterialCommunityIcons name="bluetooth" size={32} color={isConnecting ? colors.warning : connectedDevice ? colors.success : colors.danger} />
             <View style={{ flex: 1 }}>
               <View style={styles.statusLabelRow}>
                 <Text style={styles.label}>BAĞLANTI DURUMU</Text>
@@ -301,7 +305,7 @@ export default function BluetoothConnectionScreen() {
                     onPress={cancelConnection}
                     activeOpacity={0.7}
                   >
-                    <ActivityIndicator size="small" color="#F59E0B" style={styles.smallSpinner} />
+                    <ActivityIndicator size="small" color={colors.warning} style={styles.smallSpinner} />
                     <Text style={styles.connectingText}>Bağlanıyor...</Text>
                     <MaterialCommunityIcons name="close-circle" size={14} color="#D97706" />
                   </TouchableOpacity>
@@ -362,7 +366,7 @@ export default function BluetoothConnectionScreen() {
             disabled={isConnecting}
           >
             <View style={styles.lastDeviceIconCircle}>
-              <MaterialCommunityIcons name="history" size={24} color="#0284C7" />
+              <MaterialCommunityIcons name="history" size={24} color={colors.primary} />
             </View>
             <View style={styles.lastDeviceTextSection}>
               <Text style={styles.lastDeviceLabel}>Son Bağlanan Cihaz</Text>
@@ -370,9 +374,9 @@ export default function BluetoothConnectionScreen() {
               <Text style={styles.lastDeviceAddress}>{lastConnectedDevice.id}</Text>
             </View>
             {isConnecting ? (
-              <ActivityIndicator size="small" color="#0284C7" />
+              <ActivityIndicator size="small" color={colors.primary} />
             ) : (
-              <MaterialCommunityIcons name="flash" size={24} color="#0284C7" />
+              <MaterialCommunityIcons name="flash" size={24} color={colors.primary} />
             )}
           </TouchableOpacity>
         )}
@@ -391,19 +395,19 @@ export default function BluetoothConnectionScreen() {
                 <View style={styles.modalHeaderContent}>
                   <View style={styles.titleWrapper}>
                     <View style={styles.titleIconCircle}>
-                      <MaterialCommunityIcons name="bluetooth" size={20} color="#0984e3" />
+                      <MaterialCommunityIcons name="bluetooth" size={20} color={colors.primary} />
                     </View>
                     <Text style={styles.modalTitle}>Bluetooth Cihazları</Text>
                   </View>
                   <TouchableOpacity onPress={closeModal} style={styles.closeCircle}>
-                    <MaterialCommunityIcons name="close" size={20} color="#64748B" />
+                    <MaterialCommunityIcons name="close" size={20} color={colors.textSecondary} />
                   </TouchableOpacity>
                 </View>
               </View>
 
               {scanning && (
                 <View style={styles.scanningIndicator}>
-                  <ActivityIndicator size="small" color="#0984e3" />
+                  <ActivityIndicator size="small" color={colors.primary} />
                   <Text style={styles.scanningIndicatorText}>Yakındaki cihazlar taranıyor...</Text>
                 </View>
               )}

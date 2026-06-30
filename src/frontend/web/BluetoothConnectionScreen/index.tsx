@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -9,7 +9,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
-import styles from "./styles";
+import { makeStyles } from "./styles";
+import { useThemeColors, useEffectiveTheme } from "../theme";
 import { useNavigation } from "@react-navigation/native";
 import {
   AppNavigationProp,
@@ -51,6 +52,9 @@ export default function BluetoothConnectionScreen() {
 
   const navigation = useNavigation<AppNavigationProp>();
   const bluetooth = useBluetooth();
+  const colors = useThemeColors();
+  const effectiveTheme = useEffectiveTheme();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [isConnecting, setIsConnecting] = useState(false);
   const connectionCancelledRef = useRef(false);
@@ -106,11 +110,11 @@ export default function BluetoothConnectionScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8FAFC" />
+      <StatusBar barStyle={effectiveTheme === "dark" ? "light-content" : "dark-content"} backgroundColor={colors.background} />
 
       <View style={styles.headerWithBack}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <MaterialCommunityIcons name="arrow-left" size={26} color="#1E293B" />
+          <MaterialCommunityIcons name="arrow-left" size={26} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Bağlantı Yönetimi</Text>
         <TouchableOpacity
@@ -124,7 +128,7 @@ export default function BluetoothConnectionScreen() {
           }}
           style={styles.homeBtn}
         >
-          <MaterialCommunityIcons name="home" size={24} color="#1E293B" />
+          <MaterialCommunityIcons name="home" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
       </View>
 
@@ -134,7 +138,7 @@ export default function BluetoothConnectionScreen() {
             <MaterialCommunityIcons
               name="bluetooth"
               size={32}
-              color={isConnecting ? "#F59E0B" : connectedDevice ? "#10B981" : "#EF4444"}
+              color={isConnecting ? colors.warning : connectedDevice ? colors.success : colors.danger}
             />
             <View style={{ flex: 1 }}>
               <View style={styles.statusLabelRow}>
@@ -145,7 +149,7 @@ export default function BluetoothConnectionScreen() {
                     onPress={cancelConnection}
                     activeOpacity={0.7}
                   >
-                    <ActivityIndicator size="small" color="#F59E0B" style={styles.smallSpinner} />
+                    <ActivityIndicator size="small" color={colors.warning} style={styles.smallSpinner} />
                     <Text style={styles.connectingText}>Bağlanıyor...</Text>
                     <MaterialCommunityIcons name="close-circle" size={14} color="#D97706" />
                   </TouchableOpacity>
@@ -172,7 +176,7 @@ export default function BluetoothConnectionScreen() {
           </View>
           {!serialStatus.ok && (
             <View style={styles.warningBanner}>
-              <MaterialCommunityIcons name="alert-circle-outline" size={20} color="#92400E" />
+              <MaterialCommunityIcons name="alert-circle-outline" size={20} color={colors.warning} />
               <Text style={styles.warningBannerText}>{serialStatus.message}</Text>
             </View>
           )}
