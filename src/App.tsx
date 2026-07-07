@@ -24,7 +24,8 @@ function loadBackend(): BluetoothApi | null {
         return require("./backend/web").default as BluetoothApi;
       case "android":
         return require("./backend/android").default as BluetoothApi;
-      // add `case "ios":` here when an iOS backend is available
+      case "ios":
+        return require("./backend/ios").default as BluetoothApi;
       default:
         return null;
     }
@@ -50,6 +51,12 @@ function loadFrontend(): Frontend {
       return {
         App: require("./frontend/android/App").default,
         BluetoothProvider: require("./frontend/android/BluetoothContext")
+          .BluetoothProvider,
+      };
+    case "ios":
+      return {
+        App: require("./frontend/ios/App").default,
+        BluetoothProvider: require("./frontend/ios/BluetoothContext")
           .BluetoothProvider,
       };
     default:

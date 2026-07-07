@@ -22,7 +22,11 @@
       ]
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Bu uygulama yakındaki Bluetooth cihazlarına bağlanmak ve veri alışverişi yapmak için Bluetooth erişimi kullanır.",
+        "NSBluetoothPeripheralUsageDescription": "Bu uygulama yakındaki Bluetooth cihazlarına bağlanmak ve veri alışverişi yapmak için Bluetooth erişimi kullanır."
+      }
     },
     "android": {
       "adaptiveIcon": {
