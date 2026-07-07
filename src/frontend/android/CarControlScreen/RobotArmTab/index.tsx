@@ -20,6 +20,12 @@ import {
 const ARM_MIN = 0;
 const ARM_MAX = 180;
 
+// Referans telefon: Xiaomi Redmi Note 11 Pro (yatay). Bu ekranda kaydırma alanı
+// yaklaşık bu yükseklikteydi ve 3 slider tam oturuyordu. Kart yüksekliğini bu
+// değerde sabitlemek (tavan) için kullanılır; daha büyük ekranlarda kartlar dev
+// gibi büyümesin, aynı boyutta kalıp daha fazlası tek ekrana sığsın diye.
+const REFERENCE_SCROLL_HEIGHT = 285;
+
 // 180° servolarda +/- butonu basılı tutulurken değerin tekrar tekrar
 // değişme (sağa/sola döndürme) hızı. BLE backend artık yüksek bağlantı önceliği
 // + write-without-response kullandığından bu aralık güvenle düşürülebilir.
@@ -502,8 +508,15 @@ export default function RobotArmTab() {
 
   const overheadEstimate = 115;
   const estimatedScrollH = Math.max(200, height - overheadEstimate);
-  const effectiveH =
+  const measuredScrollH =
     robotScrollHeight > 0 ? robotScrollHeight : estimatedScrollH;
+
+  // Kart yüksekliğini hesaplarken kullanılan yüksekliği referans telefonla sınırla.
+  // Kendi telefonunda (≤ referans) hiçbir şey değişmez: 3 kart yine tam oturur.
+  // Daha büyük ekranlarda yükseklik sabit kalır → kartlar aynı boyutta durur ve
+  // tek ekrana 3'ten fazla kol sığabilir. Kısa ekranlarda alttaki Math.max(70, …)
+  // taban sınırı devrede kalır.
+  const effectiveH = Math.min(measuredScrollH, REFERENCE_SCROLL_HEIGHT);
 
   const cardHeight = Math.max(
     70,

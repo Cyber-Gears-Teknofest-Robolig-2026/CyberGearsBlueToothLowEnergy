@@ -27,6 +27,12 @@ const clamp = (value: number, min: number, max: number) => {
   return Math.max(min, Math.min(max, Math.round(value)));
 };
 
+// Referans telefon: Xiaomi Redmi Note 11 Pro (yatay). Üst satır (yön paneli +
+// zipline) bu yükseklikte tam oturuyordu. Daha büyük ekranlarda satırın yüksekliğini
+// bu değerde sabitliyoruz ki zipline butonu ekranı doldurup dev gibi büyümesin;
+// kendi telefonunda (≤ referans) görünüm birebir aynı kalır.
+const REFERENCE_SCROLL_HEIGHT = 285;
+
 export default function RCCarTab() {
 
   const colors = useThemeColors();
@@ -210,6 +216,38 @@ export default function RCCarTab() {
     );
   };
 
+  // Üst satır (yön paneli + zipline) yüksekliği: referans telefonla sınırlı.
+  const topRowHeight =
+    vehicleScrollHeight > 0
+      ? Math.min(vehicleScrollHeight, REFERENCE_SCROLL_HEIGHT) - 10
+      : 0;
+
+  // Yön paneli + zipline içeriğini, satır yüksekliğine göre GERÇEK boyutlarıyla
+  // (transform değil) ölçekliyoruz. Transform sadece görüntüyü küçültür, layout
+  // yüksekliği doğal kalır ve dar ekranda "aşağı" butonu yine taşardı. Burada
+  // gerçek genişlik/yükseklik/margin/ikon boyutları küçüldüğü için içerik fiziksel
+  // olarak sığar. Telefon/tablette yeterli alan var → s = 1 → görünüm birebir aynı.
+  const DIR_PAD_NATURAL_HEIGHT = 218; // yön paddingi (8) + 3 buton sırası (66+margin=70)
+  const DIR_CARD_OVERHEAD = 52; // border(2) + kart dikey padding(14) + başlık(32) + 4px pay
+  const s =
+    topRowHeight > 0
+      ? Math.min(1, Math.max(0.5, (topRowHeight - DIR_CARD_OVERHEAD) / DIR_PAD_NATURAL_HEIGHT))
+      : 1;
+
+  // Ölçekli inline stil parçaları (s = 1 iken statik stillerle birebir aynı değerler).
+  const dpButton = { width: 130 * s, height: 66 * s, borderRadius: 16 * s, marginVertical: 2 * s };
+  const dpCenter = { width: 56 * s, height: 56 * s, borderRadius: 28 * s };
+  const dpRow = { gap: 12 * s };
+  const dpPad = { paddingVertical: 4 * s };
+  const dpArrowIcon = Math.round(36 * s);
+  const dpCenterIcon = Math.round(32 * s);
+
+  const zipStatusRow = { height: 32 * s, marginTop: 8 * s };
+  const zipIconCircle = { width: 40 * s, height: 40 * s, borderRadius: 20 * s };
+  const zipButton = { minHeight: 100 * s, gap: 5 * s, marginTop: 8 * s };
+  const zipLockIcon = Math.round(26 * s);
+  const zipButtonText = { fontSize: 15 * s };
+
   return (
     <ScrollView
       style={styles.screenBody}
@@ -220,9 +258,7 @@ export default function RCCarTab() {
       <View
         style={[
           styles.vehicleTopRow,
-          vehicleScrollHeight > 0
-            ? { height: vehicleScrollHeight - 10 }
-            : null,
+          topRowHeight > 0 ? { height: topRowHeight } : null,
         ]}
       >
         <View style={styles.cardLarge}>
@@ -236,51 +272,51 @@ export default function RCCarTab() {
             </View>
           </View>
 
-          <View style={styles.directionPad}>
+          <View style={[styles.directionPad, dpPad]}>
             <HoldButton
-              style={styles.directionButton}
+              style={[styles.directionButton, dpButton]}
               activeOpacity={0.78}
               onPressIn={() => handleDirection('forward')}
               onPressOut={handleDirectionStop}
             >
-              <Entypo name="arrow-up" size={36} color="#FFFFFF" />
+              <Entypo name="arrow-up" size={dpArrowIcon} color="#FFFFFF" />
             </HoldButton>
 
-            <View style={styles.directionRow}>
+            <View style={[styles.directionRow, dpRow]}>
               <HoldButton
-                style={styles.directionButton}
+                style={[styles.directionButton, dpButton]}
                 activeOpacity={0.78}
                 onPressIn={() => handleDirection('left')}
                 onPressOut={handleDirectionStop}
               >
-                <Entypo name="arrow-left" size={36} color="#FFFFFF" />
+                <Entypo name="arrow-left" size={dpArrowIcon} color="#FFFFFF" />
               </HoldButton>
 
-              <View style={styles.directionCenter}>
+              <View style={[styles.directionCenter, dpCenter]}>
                 <MaterialIcons
                   name="directions-car"
-                  size={32}
+                  size={dpCenterIcon}
                   color="#0A84FF"
                 />
               </View>
 
               <HoldButton
-                style={styles.directionButton}
+                style={[styles.directionButton, dpButton]}
                 activeOpacity={0.78}
                 onPressIn={() => handleDirection('right')}
                 onPressOut={handleDirectionStop}
               >
-                <Entypo name="arrow-right" size={36} color="#FFFFFF" />
+                <Entypo name="arrow-right" size={dpArrowIcon} color="#FFFFFF" />
               </HoldButton>
             </View>
 
             <HoldButton
-              style={styles.directionButton}
+              style={[styles.directionButton, dpButton]}
               activeOpacity={0.78}
               onPressIn={() => handleDirection('backward')}
               onPressOut={handleDirectionStop}
             >
-              <Entypo name="arrow-down" size={36} color="#FFFFFF" />
+              <Entypo name="arrow-down" size={dpArrowIcon} color="#FFFFFF" />
             </HoldButton>
           </View>
         </View>
@@ -305,7 +341,7 @@ export default function RCCarTab() {
             </View>
           </View>
 
-          <View style={styles.ziplineStatusRow}>
+          <View style={[styles.ziplineStatusRow, zipStatusRow]}>
             <Text style={styles.ziplineStatusLabel}>Durum</Text>
 
             <View
@@ -332,18 +368,19 @@ export default function RCCarTab() {
             <View
               style={[
                 styles.ziplineButton,
+                zipButton,
                 ziplineOpen ? styles.ziplineOpen : styles.ziplineClosed,
               ]}
             >
-              <View style={styles.ziplineIconCircle}>
+              <View style={[styles.ziplineIconCircle, zipIconCircle]}>
                 <MaterialIcons
                   name={ziplineOpen ? 'lock-open' : 'lock'}
-                  size={26}
+                  size={zipLockIcon}
                   color="#FFFFFF"
                 />
               </View>
 
-              <Text style={styles.ziplineButtonText}>
+              <Text style={[styles.ziplineButtonText, zipButtonText]}>
                 {ziplineOpen ? 'AÇIK' : 'KAPALI'}
               </Text>
             </View>

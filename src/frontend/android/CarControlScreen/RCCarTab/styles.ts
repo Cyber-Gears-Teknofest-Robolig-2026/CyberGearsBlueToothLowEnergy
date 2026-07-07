@@ -11,6 +11,10 @@ const styles = StyleSheet.create({
   },
 
   vehicleScrollContent: {
+    // İçerik kaydırma alanından kısaysa (kartlar sığıp boşluk kalıyorsa) dikeyde
+    // ortala; uzunsa flexGrow devre dışı kalır ve normal şekilde (üstten) kayar.
+    flexGrow: 1,
+    justifyContent: 'center',
     padding: 5,
     gap: 5,
     paddingBottom: 11,
