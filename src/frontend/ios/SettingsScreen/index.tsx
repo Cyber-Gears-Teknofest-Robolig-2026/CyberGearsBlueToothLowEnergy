@@ -71,6 +71,7 @@ const toDraft = (s: AppSettings): DraftSettings => ({
     motor: { ...s.sendValuesHeaders.motor },
     robot_arm: { ...s.sendValuesHeaders.robot_arm },
     zipline: { ...s.sendValuesHeaders.zipline },
+    code: { ...(s.sendValuesHeaders.code ?? defaultSettings.sendValuesHeaders.code) },
   },
   allSendsValues: { ...s.allSendsValues },
   motorControlSeparateDefault: s.motorControlSeparateDefault,
@@ -442,6 +443,12 @@ export default function SettingsScreen() {
     setDraft((d) => ({
       ...d,
       sendValuesHeaders: { ...d.sendValuesHeaders, zipline: { ...d.sendValuesHeaders.zipline, [key]: value } },
+    }));
+
+  const setCodeHeader = (key: keyof SendValuesHeaders['code'], value: string) =>
+    setDraft((d) => ({
+      ...d,
+      sendValuesHeaders: { ...d.sendValuesHeaders, code: { ...d.sendValuesHeaders.code, [key]: value } },
     }));
 
   const setAllSends = (key: keyof DraftSettings['allSendsValues'], value: boolean) =>
@@ -917,6 +924,10 @@ export default function SettingsScreen() {
             <TextRow label="Ön Zipline" value={draft.sendValuesHeaders.zipline.front_zipline} onChangeText={(t) => setZiplineHeader('front_zipline', t)} />
             <TextRow label="Arka Zipline" value={draft.sendValuesHeaders.zipline.back_zipline} onChangeText={(t) => setZiplineHeader('back_zipline', t)} />
             <TextRow label="Tüm Ziplineler" value={draft.sendValuesHeaders.zipline.all_ziplines} onChangeText={(t) => setZiplineHeader('all_ziplines', t)} />
+
+            <View style={styles.divider} />
+            <Text style={styles.subGroupTitle}>Kodlar</Text>
+            <TextRow label="Kod Komutu" value={draft.sendValuesHeaders.code.command} onChangeText={(t) => setCodeHeader('command', t)} />
           </Card>
 
           <Card title="Toplu Gönderim" icon="checkbox-multiple-marked-outline" iconColor="#0284C7" iconBg="#E0F2FE">

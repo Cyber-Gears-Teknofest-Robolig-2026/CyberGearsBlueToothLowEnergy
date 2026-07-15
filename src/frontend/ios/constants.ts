@@ -78,7 +78,14 @@ export type SendValuesHeaders = {
     back_zipline: string;
     all_ziplines: string;
   };
+  code: {
+    /** Kayıtlı kod komutlarının gönderim başlığı. Örn. "C" -> "C:5\r\n". */
+    command: string;
+  };
 };
+
+/** Kod komutu gönderim önekinin varsayılanı. Ayarlardan değiştirilebilir. */
+export const CODE_COMMAND_PREFIX = "C";
 
 export type AllSendsValues = {
   motors: boolean;
@@ -177,6 +184,9 @@ export const defaultSettings: AppSettings = {
       front_zipline: "ZF",
       back_zipline: "ZB",
       all_ziplines: "Z",
+    },
+    code: {
+      command: CODE_COMMAND_PREFIX,
     },
   },
   allSendsValues: {
@@ -296,11 +306,13 @@ export const useSettingsStore = create<SettingsStore>()(
         armValuesStepDefault,
         ziplineAnglesDefault,
       }),
-      version: 2,
+      version: 3,
       // v0 -> v1: armValuesDefault eskiden number[] idi, artık { deg180, deg360 }[].
       // Eski tekil değer kolun o anki moduna yazılır (360° -> deg360, 180° -> deg180).
       // v1 -> v2: hız min/max sınırları eklendi (360° servo + motor ortak/sağ/sol).
       // Eski kayıtta yoksa varsayılana çekilir; motor max'ı mevcut çözünürlükten türetilir.
+      // v2 -> v3: sendValuesHeaders.code (kod komutu öneki) eklendi; eski kayıtta yoksa
+      // varsayılan ("C") enjekte edilir (yoksa nested obje persist'te undefined kalırdı).
       migrate: (persisted: any) => {
         if (
           persisted &&
@@ -322,6 +334,9 @@ export const useSettingsStore = create<SettingsStore>()(
           if (!persisted.motorSpeedLimitDefault) persisted.motorSpeedLimitDefault = motorLimit('motorPwmResolutionDefault');
           if (!persisted.rightMotorSpeedLimitDefault) persisted.rightMotorSpeedLimitDefault = motorLimit('rightMotorPwmResolutionDefault');
           if (!persisted.leftMotorSpeedLimitDefault) persisted.leftMotorSpeedLimitDefault = motorLimit('leftMotorPwmResolutionDefault');
+          if (persisted.sendValuesHeaders && !persisted.sendValuesHeaders.code) {
+            persisted.sendValuesHeaders.code = { ...defaultSettings.sendValuesHeaders.code };
+          }
         }
         return persisted;
       },
@@ -333,7 +348,77 @@ export const useSettingsStore = create<SettingsStore>()(
 );
 
 // ----------------------------------------------------------------------------
-// Bluetooth motorunun gerçek implementasyonu backend'tedir (src/backend/ios).
+// Kayıtlı Kodlar (Komutlar) — kullanıcı bir İSİM + KOD NO verir, liste kalıcı
+// tutulur (AsyncStorage). Gönderirken `${önek}:${code}\r\n` yazılır (önek
+// ayarlardan gelir: sendValuesHeaders.code.command, varsayılan "C"). Arduino
+// tarafı bu koda göre ilgili fonksiyonu çalıştırır; o kod bu projenin kapsamı
+// dışındadır.
+// ----------------------------------------------------------------------------
+
+export type SavedCode = {
+  id: string;
+  name: string;
+  code: number;
+};
+
+type CodesStore = {
+  codes: SavedCode[];
+  _hasHydrated: boolean;
+  setHasHydrated: (value: boolean) => void;
+  addCode: (name: string, code: number) => void;
+  updateCode: (id: string, name: string, code: number) => void;
+  removeCode: (id: string) => void;
+  /** Kodu listede bir sıra yukarı/aşağı taşır (kullanıcı sıralaması). */
+  moveCode: (id: string, direction: "up" | "down") => void;
+};
+
+const makeCodeId = () =>
+  `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+
+export const useCodesStore = create<CodesStore>()(
+  persist(
+    (set) => ({
+      codes: [],
+      _hasHydrated: false,
+      setHasHydrated: (value) => set({ _hasHydrated: value }),
+      addCode: (name, code) =>
+        set((state) => ({
+          codes: [...state.codes, { id: makeCodeId(), name, code }],
+        })),
+      updateCode: (id, name, code) =>
+        set((state) => ({
+          codes: state.codes.map((c) =>
+            c.id === id ? { ...c, name, code } : c
+          ),
+        })),
+      removeCode: (id) =>
+        set((state) => ({
+          codes: state.codes.filter((c) => c.id !== id),
+        })),
+      moveCode: (id, direction) =>
+        set((state) => {
+          const index = state.codes.findIndex((c) => c.id === id);
+          if (index === -1) return {};
+          const target = direction === "up" ? index - 1 : index + 1;
+          if (target < 0 || target >= state.codes.length) return {};
+          const next = [...state.codes];
+          [next[index], next[target]] = [next[target], next[index]];
+          return { codes: next };
+        }),
+    }),
+    {
+      name: "app-codes",
+      storage: createJSONStorage(() => AsyncStorage),
+      partialize: ({ codes }) => ({ codes }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
+    }
+  )
+);
+
+// ----------------------------------------------------------------------------
+// Bluetooth motorunun gerçek implementasyonu backend'tedir (src/backend/android).
 // Frontend onu yalnızca BluetoothContext üzerinden (App.tsx'te enjekte edilerek)
 // tanır; doğrudan import etmez.
 // ----------------------------------------------------------------------------

@@ -92,6 +92,12 @@ const styles = StyleSheet.create({
     borderColor: '#D5DFEA',
   },
 
+  // Tek sayfa (single-page) kaydırma içeriği: bölümler alt alta, aralarında boşluk.
+  singlePageContent: {
+    gap: 6,
+    paddingBottom: 12,
+  },
+
   tabButton: {
     flex: 1,
     borderRadius: 14,

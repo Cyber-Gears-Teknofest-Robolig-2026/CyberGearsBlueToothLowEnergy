@@ -33,7 +33,7 @@ const clamp = (value: number, min: number, max: number) => {
 // kendi telefonunda (≤ referans) görünüm birebir aynı kalır.
 const REFERENCE_SCROLL_HEIGHT = 285;
 
-export default function RCCarTab() {
+export default function RCCarTab({ disableScroll = false }: { disableScroll?: boolean }) {
 
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -248,13 +248,8 @@ export default function RCCarTab() {
   const zipLockIcon = Math.round(26 * s);
   const zipButtonText = { fontSize: 15 * s };
 
-  return (
-    <ScrollView
-      style={styles.screenBody}
-      contentContainerStyle={styles.vehicleScrollContent}
-      showsVerticalScrollIndicator={false}
-      onLayout={(e) => setVehicleScrollHeight(e.nativeEvent.layout.height)}
-    >
+  const content = (
+    <>
       <View
         style={[
           styles.vehicleTopRow,
@@ -419,6 +414,30 @@ export default function RCCarTab() {
           renderSpeedRow(commonSpeed, '#0A84FF')
         )}
       </View>
+    </>
+  );
+
+  // Tek sayfa (single-page) modunda: dış ScrollView yerine düz View döner; ölçü
+  // (onLayout) yine alınır ki referans-yükseklik ölçekleme mantığı çalışsın.
+  if (disableScroll) {
+    return (
+      <View
+        style={[styles.screenBody, { padding: 5, gap: 5 }]}
+        onLayout={(e) => setVehicleScrollHeight(e.nativeEvent.layout.height)}
+      >
+        {content}
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      style={styles.screenBody}
+      contentContainerStyle={styles.vehicleScrollContent}
+      showsVerticalScrollIndicator={false}
+      onLayout={(e) => setVehicleScrollHeight(e.nativeEvent.layout.height)}
+    >
+      {content}
     </ScrollView>
   );
 }
