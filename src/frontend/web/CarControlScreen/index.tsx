@@ -18,6 +18,7 @@ import { useThemeColors, useEffectiveTheme } from '../theme';
 import CustomSlider from '../CustomComponents/CustomSlider';
 import HoldButton from '../CustomComponents/HoldButton';
 import ToggleSwitch from '../CustomComponents/ToggleSwitch';
+import CodesCard from './CodesCard';
 import { AppNavigationProp, useBluetoothStore, useSettingsStore } from '../constants';
 
 // --- RCCarTab component (migrated) ---
@@ -401,11 +402,67 @@ function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
   const decrementArm = (index:number)=>handleArmChange(index, armValues[index]-ARM_STEP);
 
   const armValuesRef = useRef(armValues); armValuesRef.current = armValues;
+  // Gelen komut ayrıştırma için en güncel kol modları + parça (chunk) tamponu.
+  const armIs360Ref = useRef(armIs360); armIs360Ref.current = armIs360;
+  const rxBufferRef = useRef('');
   const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stepArm = (index:number, dir:1|-1)=> handleArmChange(index, armValuesRef.current[index]+dir*ARM_STEP);
   const startArmHold = (index:number, dir:1|-1)=>{ stopArmHold(); stepArm(index, dir); holdTimerRef.current = setInterval(()=> stepArm(index, dir), HOLD_REPEAT_MS); };
   const stopArmHold = ()=>{ if(holdTimerRef.current){ clearInterval(holdTimerRef.current); holdTimerRef.current=null;} };
   useEffect(()=>()=>stopArmHold(), []);
+
+  // ------------------------------------------------------------------------
+  // GELEN KOMUTLARI OKU → slider'ı + input'u güncelle (BT'ye geri YAZMAZ).
+  // Cihaz, uygulamanın gönderdiği kol komutuyla aynı formatta yollar (örn. "R5:0").
+  // Header ayardaki robot_arm başlıklarıyla eşleşirse ilgili kolu ayarlar. Gönderimde
+  // uygulanan "ters yön" dönüşümünün TERSİ uygulanır (180°: ters ise 180-değer;
+  // 360°: hız büyüklüğü = |değer|). Değer kolun [min,max] sınırına kıstırılır.
+  // ------------------------------------------------------------------------
+  useEffect(() => {
+    if (!connectedDevice) return;
+
+    const applyIncoming = (index: number, rawNum: number) => {
+      if (index < 0 || index > 5 || Number.isNaN(rawNum)) return;
+      const s = useSettingsStore.getState();
+      const is360 = armIs360Ref.current[index];
+      const reversed = s.armDirectionReversedDefault[index];
+      const lim = is360 ? s.armSpeedLimitsDefault[index] : s.armAngleLimitsDefault[index];
+      const lo = Math.min(lim.min, lim.max);
+      const hi = Math.max(lim.min, lim.max);
+      const logical = is360 ? Math.abs(rawNum) : reversed ? 180 - rawNum : rawNum;
+      const v = clamp(logical, lo, hi);
+      setArmValues((prev) => { const next = [...prev]; next[index] = v; return next; });
+      setArmInputs((prev) => { const next = [...prev]; next[index] = String(v); return next; });
+    };
+
+    const processLine = (line: string) => {
+      const idx = line.indexOf(':');
+      if (idx <= 0) return;
+      const header = line.slice(0, idx).trim();
+      const valuePart = line.slice(idx + 1).trim();
+      const headers = useSettingsStore.getState().sendValuesHeaders.robot_arm;
+      for (let n = 0; n <= 5; n++) {
+        const key = `robot_arm_${n}` as keyof typeof headers;
+        if (header === headers[key]) { applyIncoming(n, Number(valuePart)); return; }
+      }
+      if (header === headers.all_robot_arms) {
+        valuePart.split(',').forEach((p, i) => applyIncoming(i, Number(p.trim())));
+      }
+    };
+
+    const sub = connectedDevice.onDataReceived((event) => {
+      // Web chunk verir → tampon + satır ayrıştırma (Android satır-bazlı ile de uyumlu).
+      rxBufferRef.current += event.data;
+      const parts = rxBufferRef.current.split(/\r\n|\r|\n/);
+      rxBufferRef.current = parts.pop() ?? '';
+      for (const raw of parts) {
+        const line = raw.trim();
+        if (line) processLine(line);
+      }
+    });
+
+    return () => sub.remove();
+  }, [connectedDevice]);
 
   const handleArmInputChange = (index:number, text:string)=>{ const onlyNumbers = text.replace(/[^0-9]/g,''); setArmInputs(prev=>{ const next=[...prev]; next[index]=onlyNumbers; return next; }); if(onlyNumbers!==''){ const { lo, hi } = armBounds(index, armIs360[index]); const clampedValue = clamp(Number(onlyNumbers), lo, hi); setArmValues(prev=>{ const next=[...prev]; next[index]=clampedValue; return next; }); } };
   const handleArmInputSubmit = (index:number, text:string)=>{ const onlyNumbers = text.replace(/[^0-9]/g,''); const numValue = onlyNumbers===''?0:Number(onlyNumbers); handleArmChange(index, numValue); };
@@ -454,6 +511,19 @@ function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
   return (<ScrollView style={styles.screenBody} contentContainerStyle={styles.armScrollContent} showsVerticalScrollIndicator={false} onLayout={(e)=> setRobotScrollHeight(e.nativeEvent.layout.height)}>{content}</ScrollView>);
   }
 
+const TAB_ROUTES = [
+  { key: 'car', title: 'Araç Kontrol', icon: 'directions-car' },
+  { key: 'codes', title: 'Kodlar', icon: 'code' },
+  { key: 'arm', title: 'Robot Kol', icon: 'precision-manufacturing' },
+] as const;
+
+// Bir bölümün üstü, kaydırma tepesinin bu kadar altına indiğinde o bölüm "aktif" sayılır.
+const ACTIVATION_OFFSET = 110;
+
+// Sekmeye tıklayınca yumuşak kaydırma için easing (yavaş başla → hızlan → yavaşla).
+const easeInOutCubic = (t: number) =>
+  t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
   export default function CarControlScreen() {
 
   const navigation = useNavigation<AppNavigationProp>();
@@ -466,6 +536,68 @@ function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
   const setConnectedDevice = useBluetoothStore((state) => state.setConnectedDevice);
   const setMessages = useBluetoothStore((state) => state.setMessages);
   const setManuallyDisconnected = useBluetoothStore((state) => state.setManuallyDisconnected);
+
+  // Tek sayfa scroll: bölüm ofsetleri (onLayout) + kaydırmaya göre aktif sekme.
+  const scrollRef = useRef<ScrollView>(null);
+  const sectionOffsets = useRef<number[]>([0, 0, 0]);
+  const activeTabRef = useRef(0);
+  const [activeTab, setActiveTab] = useState(0);
+  // Anlık kaydırma konumu + süren yumuşak kaydırma animasyonunun handle'ı.
+  const scrollYRef = useRef(0);
+  const scrollAnimRef = useRef<number | null>(null);
+
+  const cancelScrollAnim = () => {
+    if (scrollAnimRef.current != null) {
+      cancelAnimationFrame(scrollAnimRef.current);
+      scrollAnimRef.current = null;
+    }
+  };
+
+  // Bileşen kaldırılırken süren animasyon takılı kalmasın.
+  useEffect(() => cancelScrollAnim, []);
+
+  const onSectionLayout = (i: number) => (e: any) => {
+    sectionOffsets.current[i] = e.nativeEvent.layout.y;
+  };
+
+  // Native smooth-scroll yerine mesafeyle orantılı süreli, easing'li kendi
+  // animasyonumuzu sürüyoruz (Android ile aynı yumuşak his).
+  const scrollToSection = (i: number) => {
+    console.log('[Tab] Scroll to section:', TAB_ROUTES[i]?.key);
+    const target = Math.max(0, sectionOffsets.current[i] - 4);
+    const start = scrollYRef.current;
+    const distance = target - start;
+    if (Math.abs(distance) < 1) return;
+    // Süreyi mesafeyle orantılı ama [320, 650] ms ile sınırlı tut → hep yumuşak his.
+    const duration = Math.min(650, Math.max(320, Math.abs(distance) * 0.7));
+    const startTime = Date.now();
+    cancelScrollAnim();
+    const step = () => {
+      const t = Math.min(1, (Date.now() - startTime) / duration);
+      const y = start + distance * easeInOutCubic(t);
+      scrollRef.current?.scrollTo({ y, animated: false });
+      scrollAnimRef.current = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    scrollAnimRef.current = requestAnimationFrame(step);
+  };
+
+  const onScroll = (e: any) => {
+    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+    scrollYRef.current = contentOffset.y;
+    const line = contentOffset.y + ACTIVATION_OFFSET;
+    let active = 0;
+    for (let i = 0; i < sectionOffsets.current.length; i++) {
+      if (sectionOffsets.current[i] <= line) active = i;
+    }
+    // Alta ulaşıldığında son bölüm aktif olsun (kısa son bölüm tepeye gelemeyebilir).
+    if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 4) {
+      active = sectionOffsets.current.length - 1;
+    }
+    if (active !== activeTabRef.current) {
+      activeTabRef.current = active;
+      setActiveTab(active);
+    }
+  };
 
   const disconnectDevice = async () => {
     console.log('[Header] Disconnect button pressed');
@@ -593,11 +725,38 @@ function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
             </View>
           </View>
 
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.singlePageContent}>
+          <View style={styles.tabShell}>
+            {TAB_ROUTES.map((route, i) => (
+              <TouchableOpacity
+                key={route.key}
+                activeOpacity={0.85}
+                style={[styles.tabButton, activeTab === i && styles.activeTab]}
+                onPress={() => scrollToSection(i)}
+              >
+                <MaterialIcons
+                  name={route.icon}
+                  size={20}
+                  color={activeTab === i ? '#FFFFFF' : colors.textSecondary}
+                />
+                <Text style={[styles.tabText, activeTab === i && styles.activeTabText]}>
+                  {route.title}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <ScrollView
+            ref={scrollRef}
+            style={{ flex: 1 }}
+            contentContainerStyle={styles.singlePageContent}
+            scrollEventThrottle={16}
+            onScroll={onScroll}
+            onScrollBeginDrag={cancelScrollAnim}
+          >
             <Text style={styles.pageTitle}>Araç Kontrol Paneli</Text>
             <Text style={styles.pageSubtitle}>Tüm kontroller tek sayfada. Mouse kaydırma tüm sayfayı hareket ettirir.</Text>
 
-            <View style={styles.sectionWrap}>
+            <View style={styles.sectionWrap} onLayout={onSectionLayout(0)}>
               <View style={styles.headerPillContainer}>
                 <View style={styles.headerPill}>
                   <View style={styles.headerPillIconBox}>
@@ -609,7 +768,19 @@ function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
               <RCCarTab disableScroll />
             </View>
 
-            <View style={styles.sectionWrap}>
+            <View style={styles.sectionWrap} onLayout={onSectionLayout(1)}>
+              <View style={styles.headerPillContainer}>
+                <View style={styles.headerPill}>
+                  <View style={styles.headerPillIconBox}>
+                    <MaterialIcons name="code" size={18} color="#0A84FF" />
+                  </View>
+                  <Text style={styles.headerPillText}>Kodlar</Text>
+                </View>
+              </View>
+              <CodesCard />
+            </View>
+
+            <View style={styles.sectionWrap} onLayout={onSectionLayout(2)}>
               <View style={styles.headerPillContainer}>
                 <View style={styles.headerPill}>
                   <View style={styles.headerPillIconBox}>

@@ -80,7 +80,7 @@ const AppNavigator = () => {
             CarControl: "Araç Kontrol",
             Settings: "Ayarlar",
           };
-          return titles[route?.name ?? ""] ?? "Cyber Gears BlueTooth Classic";
+          return titles[route?.name ?? ""] ?? "Cyber Gears BlueTooth Low Energy";
         },
       }}
       linking={{

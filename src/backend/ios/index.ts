@@ -38,7 +38,7 @@ let scanActive = false;
 
 // Beklenmedik kopmalarda (güç kesildi / menzilden çıktı) frontend'i uyarmak için
 // kayıtlı dinleyiciler. Manuel kesmede de tetiklenir; frontend manuallyDisconnected
-// bayrağıyla uyarıyı bastırır (Bluetooth Classic backend ile aynı davranış).
+// bayrağıyla uyarıyı bastırır (Bluetooth Low Energy backend ile aynı davranış).
 const disconnectListeners = new Set<() => void>();
 let activeDisconnectSub: { remove: () => void } | null = null;
 

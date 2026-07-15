@@ -1,19 +1,21 @@
 import { StatusBar } from 'expo-status-bar';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Alert,
+  ScrollView,
   Text,
   ToastAndroid,
   TouchableOpacity,
   View,
-  useWindowDimensions,
+  type LayoutChangeEvent,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useNavigation } from '@react-navigation/native';
-import { TabView, SceneMap } from 'react-native-tab-view';
 // Sadece bu ekranda gesture kökü (zipline butonu için). App kökünü değiştirmiyoruz
 // ki diğer ekranların safe area'sı etkilenmesin.
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -21,23 +23,27 @@ import { makeStyles } from './styles';
 import { useThemeColors, useEffectiveTheme } from '../theme';
 import RCCarTab from './RCCarTab';
 import RobotArmTab from './RobotArmTab';
+import CodesTab from './CodesTab';
 import { AppNavigationProp, useBluetoothStore } from '../constants';
 
 
 const TAB_ROUTES = [
-  { key: 'car', title: 'Araç Kontrol' },
-  { key: 'arm', title: 'Robot Kol' },
-];
+  { key: 'car', title: 'Araç Kontrol', icon: 'directions-car' },
+  { key: 'codes', title: 'Kodlar', icon: 'code' },
+  { key: 'arm', title: 'Robot Kol', icon: 'precision-manufacturing' },
+] as const;
 
-const renderScene = SceneMap({
-  car: RCCarTab,
-  arm: RobotArmTab,
-});
+// Aktif sekmenin kaydırmaya göre belirlenmesinde eşik: bir bölümün üstü, kaydırma
+// tepesinin bu kadar altına indiğinde o bölüm "aktif" sayılır.
+const ACTIVATION_OFFSET = 110;
+
+// Sekmeye tıklayınca yumuşak kaydırma için easing (yavaş başla → hızlan → yavaşla).
+const easeInOutCubic = (t: number) =>
+  t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
 export default function CarControlScreen() {
 
   const navigation = useNavigation<AppNavigationProp>();
-  const layout = useWindowDimensions();
   const colors = useThemeColors();
   const effectiveTheme = useEffectiveTheme();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -84,7 +90,67 @@ export default function CarControlScreen() {
     };
   }, []);
 
-  const [index, setIndex] = useState(0);
+  // Tek sayfa scroll: bölüm ofsetleri (onLayout ile), kaydırmaya göre aktif sekme.
+  const scrollRef = useRef<ScrollView>(null);
+  const sectionOffsets = useRef<number[]>([0, 0, 0]);
+  const activeTabRef = useRef(0);
+  const [activeTab, setActiveTab] = useState(0);
+  // Anlık kaydırma konumu + süren yumuşak kaydırma animasyonunun handle'ı.
+  const scrollYRef = useRef(0);
+  const scrollAnimRef = useRef<number | null>(null);
+
+  const cancelScrollAnim = () => {
+    if (scrollAnimRef.current != null) {
+      cancelAnimationFrame(scrollAnimRef.current);
+      scrollAnimRef.current = null;
+    }
+  };
+
+  // Bileşen kaldırılırken süren animasyon takılı kalmasın.
+  useEffect(() => cancelScrollAnim, []);
+
+  const onSectionLayout = (i: number) => (e: LayoutChangeEvent) => {
+    sectionOffsets.current[i] = e.nativeEvent.layout.y;
+  };
+
+  // Native smoothScrollTo sabit/kısa süreli olduğundan uzun atlamada sert hissettiriyor.
+  // Bunun yerine mesafeyle orantılı süreli, easing'li kendi animasyonumuzu sürüyoruz.
+  const scrollToSection = (i: number) => {
+    console.log('[Tab] Scroll to section:', TAB_ROUTES[i]?.key);
+    const target = Math.max(0, sectionOffsets.current[i] - 4);
+    const start = scrollYRef.current;
+    const distance = target - start;
+    if (Math.abs(distance) < 1) return;
+    // Süreyi mesafeyle orantılı ama [320, 650] ms ile sınırlı tut → hep yumuşak his.
+    const duration = Math.min(650, Math.max(320, Math.abs(distance) * 0.7));
+    const startTime = Date.now();
+    cancelScrollAnim();
+    const step = () => {
+      const t = Math.min(1, (Date.now() - startTime) / duration);
+      const y = start + distance * easeInOutCubic(t);
+      scrollRef.current?.scrollTo({ y, animated: false });
+      scrollAnimRef.current = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    scrollAnimRef.current = requestAnimationFrame(step);
+  };
+
+  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
+    scrollYRef.current = contentOffset.y;
+    const line = contentOffset.y + ACTIVATION_OFFSET;
+    let active = 0;
+    for (let i = 0; i < sectionOffsets.current.length; i++) {
+      if (sectionOffsets.current[i] <= line) active = i;
+    }
+    // Alta ulaşıldığında son bölüm aktif olsun (kısa son bölüm tepeye gelemeyebilir).
+    if (contentOffset.y + layoutMeasurement.height >= contentSize.height - 4) {
+      active = sectionOffsets.current.length - 1;
+    }
+    if (active !== activeTabRef.current) {
+      activeTabRef.current = active;
+      setActiveTab(active);
+    }
+  };
 
   const handleBackPress = () => {
     console.log('[Header] Back button pressed');
@@ -114,42 +180,25 @@ export default function CarControlScreen() {
     navigation.navigate('Settings');
   };
 
-  const handleTabChange = (newIndex: number) => {
-    console.log('[Tab] Changed to:', TAB_ROUTES[newIndex]?.key, '(index:', newIndex + ')');
-    setIndex(newIndex);
-  };
-
   const renderTabBar = () => (
     <View style={styles.tabShell}>
-      <TouchableOpacity
-        activeOpacity={0.85}
-        style={[styles.tabButton, index === 0 && styles.activeTab]}
-        onPress={() => handleTabChange(0)}
-      >
-        <MaterialIcons
-          name="directions-car"
-          size={22}
-          color={index === 0 ? '#FFFFFF' : colors.textSecondary}
-        />
-        <Text style={[styles.tabText, index === 0 && styles.activeTabText]}>
-          {TAB_ROUTES[0].title}
-        </Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        activeOpacity={0.85}
-        style={[styles.tabButton, index === 1 && styles.activeTab]}
-        onPress={() => handleTabChange(1)}
-      >
-        <MaterialIcons
-          name="precision-manufacturing"
-          size={22}
-          color={index === 1 ? '#FFFFFF' : colors.textSecondary}
-        />
-        <Text style={[styles.tabText, index === 1 && styles.activeTabText]}>
-          {TAB_ROUTES[1].title}
-        </Text>
-      </TouchableOpacity>
+      {TAB_ROUTES.map((route, i) => (
+        <TouchableOpacity
+          key={route.key}
+          activeOpacity={0.85}
+          style={[styles.tabButton, activeTab === i && styles.activeTab]}
+          onPress={() => scrollToSection(i)}
+        >
+          <MaterialIcons
+            name={route.icon}
+            size={22}
+            color={activeTab === i ? '#FFFFFF' : colors.textSecondary}
+          />
+          <Text style={[styles.tabText, activeTab === i && styles.activeTabText]}>
+            {route.title}
+          </Text>
+        </TouchableOpacity>
+      ))}
     </View>
   );
 
@@ -233,14 +282,28 @@ export default function CarControlScreen() {
             </View>
           </View>
 
-          <TabView
-            navigationState={{ index, routes: TAB_ROUTES }}
-            renderScene={renderScene}
-            onIndexChange={handleTabChange}
-            initialLayout={{ width: layout.width }}
-            renderTabBar={renderTabBar}
-            swipeEnabled={false}
-          />
+          {renderTabBar()}
+
+          <ScrollView
+            ref={scrollRef}
+            style={{ flex: 1 }}
+            contentContainerStyle={styles.singlePageContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            scrollEventThrottle={16}
+            onScroll={onScroll}
+            onScrollBeginDrag={cancelScrollAnim}
+          >
+            <View onLayout={onSectionLayout(0)}>
+              <RCCarTab disableScroll />
+            </View>
+            <View onLayout={onSectionLayout(1)}>
+              <CodesTab disableScroll />
+            </View>
+            <View onLayout={onSectionLayout(2)}>
+              <RobotArmTab disableScroll />
+            </View>
+          </ScrollView>
         </View>
         </GestureHandlerRootView>
       </SafeAreaView>

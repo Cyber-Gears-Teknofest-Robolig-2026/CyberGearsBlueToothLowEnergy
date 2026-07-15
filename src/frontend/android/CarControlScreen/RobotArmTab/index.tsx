@@ -48,7 +48,7 @@ const clamp = (value: number, min: number, max: number) => {
   return Math.max(min, Math.min(max, Math.round(value)));
 };
 
-export default function RobotArmTab() {
+export default function RobotArmTab({ disableScroll = false }: { disableScroll?: boolean }) {
 
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -219,6 +219,10 @@ export default function RobotArmTab() {
   // ref'ten okuyoruz.
   const armValuesRef = useRef(armValues);
   armValuesRef.current = armValues;
+  // Gelen komut ayrıştırma için en güncel kol modları + parça (chunk) tamponu.
+  const armIs360Ref = useRef(armIs360);
+  armIs360Ref.current = armIs360;
+  const rxBufferRef = useRef('');
   const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stepArm = (index: number, dir: 1 | -1) => {
@@ -240,6 +244,73 @@ export default function RobotArmTab() {
 
   // Ekrandan çıkılırsa sayaç takılı kalmasın.
   useEffect(() => () => stopArmHold(), []);
+
+  // ------------------------------------------------------------------------
+  // GELEN KOMUTLARI OKU → slider'ı + input'u güncelle (BT'ye geri YAZMAZ).
+  // Cihaz, uygulamanın gönderdiği kol komutuyla aynı formatta yollar (örn.
+  // "R5:0"). Header ayardaki robot_arm başlıklarıyla eşleşirse ilgili kolu ayarlar.
+  // Gönderimde uygulanan "ters yön" dönüşümünün TERSİ uygulanır (180°: ters ise
+  // 180-değer; 360°: hız büyüklüğü = |değer|). Değer kolun [min,max] sınırına kıstırılır.
+  // ------------------------------------------------------------------------
+  useEffect(() => {
+    if (!connectedDevice) return;
+
+    const applyIncoming = (index: number, rawNum: number) => {
+      if (index < 0 || index > 5 || Number.isNaN(rawNum)) return;
+      const s = useSettingsStore.getState();
+      const is360 = armIs360Ref.current[index];
+      const reversed = s.armDirectionReversedDefault[index];
+      const lim = is360 ? s.armSpeedLimitsDefault[index] : s.armAngleLimitsDefault[index];
+      const lo = Math.min(lim.min, lim.max);
+      const hi = Math.max(lim.min, lim.max);
+      const logical = is360 ? Math.abs(rawNum) : reversed ? 180 - rawNum : rawNum;
+      const v = clamp(logical, lo, hi);
+      setArmValues((prev) => {
+        const next = [...prev];
+        next[index] = v;
+        return next;
+      });
+      setArmInputs((prev) => {
+        const next = [...prev];
+        next[index] = String(v);
+        return next;
+      });
+    };
+
+    const processLine = (line: string) => {
+      const idx = line.indexOf(':');
+      if (idx <= 0) return;
+      const header = line.slice(0, idx).trim();
+      const valuePart = line.slice(idx + 1).trim();
+      const headers = useSettingsStore.getState().sendValuesHeaders.robot_arm;
+
+      // Tek kol: R0..R5 (tam eşleşme; "R" ön ekiyle karışmaz).
+      for (let n = 0; n <= 5; n++) {
+        const key = `robot_arm_${n}` as keyof typeof headers;
+        if (header === headers[key]) {
+          applyIncoming(n, Number(valuePart));
+          return;
+        }
+      }
+      // Tüm kollar: "R:v0,v1,...,v5"
+      if (header === headers.all_robot_arms) {
+        valuePart.split(',').forEach((p, i) => applyIncoming(i, Number(p.trim())));
+      }
+    };
+
+    const sub = connectedDevice.onDataReceived((event) => {
+      // Android satır-bazlı, web chunk verir → tampon + satır ayrıştırma ikisini de kapsar.
+      rxBufferRef.current += event.data;
+      const parts = rxBufferRef.current.split(/\r\n|\r|\n/);
+      rxBufferRef.current = parts.pop() ?? '';
+      for (const raw of parts) {
+        const line = raw.trim();
+        if (line) processLine(line);
+      }
+    });
+
+    return () => sub.remove();
+  }, [connectedDevice]);
 
   const handleArmInputChange = (index: number, text: string) => {
     const onlyNumbers = text.replace(/[^0-9]/g, '');
@@ -523,6 +594,23 @@ export default function RobotArmTab() {
     Math.floor((effectiveH - 30) / 3),
   );
 
+  const content = [5, 4, 3, 2, 1, 0].map((i) =>
+    renderHorizontalArmCard(i, cardHeight),
+  );
+
+  // Tek sayfa (single-page) modunda: dış ScrollView yerine düz View döner; ölçü
+  // (onLayout) yine alınır ki kart yüksekliği mantığı çalışsın.
+  if (disableScroll) {
+    return (
+      <View
+        style={[styles.screenBody, { padding: 5, gap: 5 }]}
+        onLayout={(e) => setRobotScrollHeight(e.nativeEvent.layout.height)}
+      >
+        {content}
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={styles.screenBody}
@@ -530,9 +618,7 @@ export default function RobotArmTab() {
       showsVerticalScrollIndicator={false}
       onLayout={(e) => setRobotScrollHeight(e.nativeEvent.layout.height)}
     >
-      {[5, 4, 3, 2, 1, 0].map((i) =>
-        renderHorizontalArmCard(i, cardHeight),
-      )}
+      {content}
     </ScrollView>
   );
 }
